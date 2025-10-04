@@ -7,9 +7,15 @@ Spotify CLI GUI-lite för PowerShell
 #>
 
 #region Konfiguration
+Get-Content .env | ForEach-Object {
+    if ($_ -match "^(.*?)=(.*)$"){
+        [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+    }
+}
+
 # Fyll i dina uppgifter från Spotify Developer Dashboard
-$ClientId     = "REMOVED"
-$ClientSecret = "REMOVED"
+$ClientId     = $env:SPOTIFY_CLIENT_ID
+$ClientSecret = $env:SPOTIFY_CLIENT_SERCET
 
 # Redirect URI måste exakt matcha den du lagt till i appens inställningar
 $RedirectUri  = "http://127.0.0.1:8888/callback"
