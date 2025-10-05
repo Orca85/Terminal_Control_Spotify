@@ -52,11 +52,14 @@ sh on            # Enable shuffle
 rep track        # Repeat current track
 ```
 
-### Discovery
+### Discovery & Smart Numbers
 
 ```powershell
 search "artist name"    # Search for music
+play 1                  # Play first track from search
+queue 2                 # Add second track to queue
 devices                 # List Spotify devices
+transfer 1              # Switch to first device
 pl                      # Show your playlists
 liked                   # Show liked songs
 ```
@@ -103,13 +106,18 @@ If you get "401 Unauthorized" errors:
 
 ## 💡 Pro Tips
 
-### Use Aliases
+### Use Built-in Aliases
 
 ```powershell
 music            # Short for 'spotify' (Show-SpotifyTrack)
 spotify          # Show current track
+sp               # Even shorter for current track
 vol 50           # Short for 'volume 50'
 pl               # Short for 'playlists'
+q                # Short for 'queue'
+sh on            # Short for 'shuffle on'
+rep track        # Short for 'repeat track'
+tr 1             # Short for 'transfer 1'
 ```
 
 ### Create Custom Aliases
@@ -136,10 +144,13 @@ vol 80; sh on
 search "beatles"; spotify
 ```
 
-### Configuration
+### Configuration & Notifications
 
 ```powershell
-# Enable notifications
+# Test notifications first
+notifications test
+
+# Enable notifications for track changes
 notifications on
 
 # Set compact mode
@@ -147,6 +158,10 @@ Set-SpotifyConfig @{CompactMode=$true}
 
 # View all settings
 Get-SpotifyConfig
+
+# Create custom aliases
+Set-SpotifyAlias -Alias 'np' -Command 'Show-SpotifyTrack'
+Get-SpotifyAliases
 ```
 
 ## 🎯 Workflow Examples
@@ -160,22 +175,61 @@ pl               # Browse playlists
 # Play your morning playlist
 ```
 
-### Music Discovery
+### Music Discovery (with Smart Numbers)
 
 ```powershell
 search "new indie rock"    # Find new music
-# Copy track URI from results
-q <track_uri>             # Add to queue
-save-track                # Save if you like it
+play 1                     # Play first result immediately
+queue 2                    # Add second result to queue
+queue 3                    # Add third result to queue
+save-track                 # Save current track if you like it
 ```
 
-### Quick Controls
+### Device Management
+
+```powershell
+devices          # List all devices with numbers
+transfer 1       # Switch to device #1
+transfer 2       # Switch to device #2
+sp               # Check what's playing and where
+```
+
+### Final Controls
 
 ```powershell
 sp               # Check what's playing
 vol 60           # Adjust volume
 sh toggle        # Toggle shuffle
 rep context      # Repeat playlist
+notifications test  # Test notification system
 ```
+
+## 🔢 Smart Number System
+
+The biggest time-saver is using numbers instead of long IDs:
+
+### Instead of this (old way):
+
+```powershell
+search "beatles"
+# Copy: spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+play spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+
+devices
+# Copy: b04f69eae60b6a491f1243307628c51436b13a23
+transfer b04f69eae60b6a491f1243307628c51436b13a23
+```
+
+### Do this (new way):
+
+```powershell
+search "beatles"
+play 1           # Play first result
+
+devices
+transfer 1       # Switch to first device
+```
+
+Much easier! 🎉
 
 Remember: Run `help` anytime to see all available commands!

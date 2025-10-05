@@ -52,6 +52,20 @@ This version provides essential Spotify control with core playback features, dev
 - Works on Windows PowerShell 5.1 and PowerShell 7+
 - Backward compatible with existing workflows
 
+### 🔢 Smart Number References
+
+- **Numbered Devices**: Use `transfer 1` instead of long device IDs
+- **Numbered Tracks**: Use `play 1` or `queue 2` from search results
+- **Session Memory**: Commands remember your last search and device list
+- **User-Friendly**: No more copying/pasting long Spotify URIs
+
+### 🎯 Custom Aliases
+
+- **Built-in Aliases**: Short commands like `sp`, `vol`, `sh`, `rep`
+- **Custom Aliases**: Create your own shortcuts with `Set-SpotifyAlias`
+- **Alias Management**: View, modify, and remove aliases easily
+- **Conflict Detection**: Automatic detection of PowerShell command conflicts
+
 ---
 
 ## ⚙️ Requirements
@@ -139,17 +153,18 @@ Use commands anywhere in PowerShell:
 
 #### 📱 Device Management
 
-| Command    | Action                 | Example              | Alias |
-| ---------- | ---------------------- | -------------------- | ----- |
-| `devices`  | List available devices | `devices`            | -     |
-| `transfer` | Switch to device       | `transfer device_id` | `tr`  |
+| Command    | Action                 | Example                              | Alias |
+| ---------- | ---------------------- | ------------------------------------ | ----- |
+| `devices`  | List available devices | `devices`                            | -     |
+| `transfer` | Switch to device       | `transfer 1` or `transfer device_id` | `tr`  |
 
 #### 🔍 Search & Queue
 
-| Command  | Action           | Example                      | Alias |
-| -------- | ---------------- | ---------------------------- | ----- |
-| `search` | Search for music | `search "bohemian rhapsody"` | -     |
-| `queue`  | Add to queue     | `queue spotify:track:...`    | `q`   |
+| Command  | Action           | Example                                | Alias |
+| -------- | ---------------- | -------------------------------------- | ----- |
+| `search` | Search for music | `search "bohemian rhapsody"`           | -     |
+| `play`   | Play track       | `play 1` or `play spotify:track:...`   | -     |
+| `queue`  | Add to queue     | `queue 2` or `queue spotify:track:...` | `q`   |
 
 #### 📚 Library Management
 
@@ -170,6 +185,15 @@ Use commands anywhere in PowerShell:
 | `notifications`     | Control notifications   | `notifications on`                       | -      |
 | `Get-SpotifyHelp`   | Show comprehensive help | `Get-SpotifyHelp`                        | `help` |
 | `spotify-help`      | Short alias for help    | `spotify-help`                           | -      |
+
+#### 🎯 Alias Management
+
+| Command               | Action              | Example                                                        |
+| --------------------- | ------------------- | -------------------------------------------------------------- |
+| `Set-SpotifyAlias`    | Create custom alias | `Set-SpotifyAlias -Alias 'music' -Command 'Show-SpotifyTrack'` |
+| `Get-SpotifyAliases`  | View all aliases    | `Get-SpotifyAliases`                                           |
+| `Remove-SpotifyAlias` | Remove alias        | `Remove-SpotifyAlias -Alias 'music'`                           |
+| `Test-AliasConflicts` | Check for conflicts | `Test-AliasConflicts`                                          |
 
 ### Script Mode (Interactive CLI)
 
@@ -199,12 +223,13 @@ PS C:\> spotify
 
 PS C:\> next
 ⏭️ Skipped to next track
+# Toast notification appears: "Now Playing: Another One Bites the Dust by Queen"
 
-PS C:\> Invoke-VolumeCommand 80
+PS C:\> vol 80
 🔊 Volume set to 80%
 ```
 
-#### Advanced Features
+#### Advanced Features with Number References
 
 ```powershell
 PS C:\> search "pink floyd"
@@ -215,15 +240,31 @@ TRACKS:
 2. Wish You Were Here - Pink Floyd (Wish You Were Here)
 3. Another Brick in the Wall - Pink Floyd (The Wall)
 
+💡 Tip: Use 'play 1' to play track #1, or 'queue 2' to add track #2 to queue
+
+PS C:\> play 1
+🎯 Playing track #1 (Comfortably Numb by Pink Floyd)...
+▶️ Playing track
+
 PS C:\> devices
 📱 Available Devices:
 1. 💻 Desktop (Computer) - Active, Volume: 75%
 2. 📱 iPhone (Smartphone) - Volume: 50%
 3. 🔊 Living Room Speaker (Speaker) - Volume: 80%
 
-PS C:\> notifications on
-🔔 Notifications enabled
-✅ Notification system ready: BurntToast module available
+💡 Tip: Use 'transfer 1' to switch to device #1
+
+PS C:\> transfer 2
+🎯 Transferring to device #2 (iPhone)...
+📱 Playback transferred successfully
+
+PS C:\> queue 3
+🎯 Adding track #3 (Another Brick in the Wall by Pink Floyd) to queue...
+➕ Track added to queue
+
+PS C:\> notifications test
+🧪 Testing notification system...
+# Toast notification appears: "Test Notification - This is a test message"
 ```
 
 #### Configuration
@@ -238,6 +279,133 @@ Colors             : @{Playing=Green; Paused=Yellow; Track=Cyan}
 
 PS C:\> Set-SpotifyConfig @{CompactMode=$true; NotificationsEnabled=$true}
 ✅ Configuration updated successfully
+```
+
+---
+
+## 🔢 Smart Number References
+
+One of the most user-friendly features is the ability to use simple numbers instead of long Spotify IDs and URIs:
+
+### Device Numbers
+
+```powershell
+PS C:\> devices
+📱 Available Devices:
+1. 💻 Desktop (Computer) - Active, Volume: 75%
+2. 📱 iPhone (Smartphone) - Volume: 50%
+3. 🔊 Living Room Speaker (Speaker) - Volume: 80%
+
+PS C:\> transfer 2    # Switch to iPhone (device #2)
+🎯 Transferring to device #2 (iPhone)...
+📱 Playback transferred successfully
+```
+
+### Track Numbers
+
+```powershell
+PS C:\> search "the beatles"
+🔍 Search Results for "the beatles":
+
+TRACKS:
+1. Hey Jude - The Beatles (Past Masters)
+2. Let It Be - The Beatles (Let It Be)
+3. Come Together - The Beatles (Abbey Road)
+
+PS C:\> play 1       # Play Hey Jude (track #1)
+🎯 Playing track #1 (Hey Jude by The Beatles)...
+▶️ Playing track
+
+PS C:\> queue 3      # Add Come Together to queue
+🎯 Adding track #3 (Come Together by The Beatles) to queue...
+➕ Track added to queue
+```
+
+### Session Memory
+
+The CLI remembers your last search results and device list throughout your PowerShell session:
+
+- **Search once, use numbers**: After searching, use `play 1`, `queue 2`, etc.
+- **List devices once**: After running `devices`, use `transfer 1`, `transfer 2`, etc.
+- **No copying URIs**: Never need to copy/paste long Spotify URIs or device IDs
+- **Persistent until new search**: Numbers stay valid until you search again
+
+### Backward Compatibility
+
+All commands still accept the original long-form IDs and URIs:
+
+```powershell
+# Both work the same way:
+play 1                                    # Use number from search
+play spotify:track:4iV5W9uYEdYUVa79Axb7Rh # Use full URI
+
+# Both work the same way:
+transfer 1                                # Use number from devices
+transfer b04f69eae60b6a491f1243307628c51436b13a23  # Use full device ID
+```
+
+---
+
+## 🎯 Custom Aliases System
+
+Create your own shortcuts for frequently used commands:
+
+### Built-in Aliases
+
+The module comes with useful built-in aliases:
+
+| Alias     | Command             | Description                   |
+| --------- | ------------------- | ----------------------------- |
+| `spotify` | `Show-SpotifyTrack` | Show current track (detailed) |
+| `music`   | `Show-SpotifyTrack` | Alternative to spotify        |
+| `sp`      | `Show-SpotifyTrack` | Short form                    |
+| `vol`     | `volume`            | Volume control                |
+| `sh`      | `shuffle`           | Shuffle control               |
+| `rep`     | `repeat`            | Repeat control                |
+| `tr`      | `transfer`          | Device transfer               |
+| `q`       | `queue`             | Add to queue                  |
+| `pl`      | `playlists`         | Show playlists                |
+| `help`    | `Get-SpotifyHelp`   | Show help                     |
+
+### Creating Custom Aliases
+
+```powershell
+# Create a new alias
+Set-SpotifyAlias -Alias 'np' -Command 'Show-SpotifyTrack'
+Set-SpotifyAlias -Alias 'v' -Command 'volume'
+Set-SpotifyAlias -Alias 'find' -Command 'search'
+
+# Use your custom aliases
+np           # Shows current track
+v 75         # Sets volume to 75%
+find "jazz"  # Searches for jazz music
+```
+
+### Managing Aliases
+
+```powershell
+# View all current aliases
+Get-SpotifyAliases
+
+# Remove an alias
+Remove-SpotifyAlias -Alias 'np'
+
+# Check for conflicts with existing PowerShell commands
+Test-AliasConflicts
+```
+
+### Alias Conflict Detection
+
+The system automatically detects conflicts with existing PowerShell commands:
+
+```powershell
+PS C:\> Set-SpotifyAlias -Alias 'ls' -Command 'liked'
+⚠️ Warning: Alias 'ls' conflicts with existing PowerShell command
+❌ Cannot create alias 'ls' - conflicts with existing command
+
+PS C:\> Test-AliasConflicts
+🔍 Checking for alias conflicts...
+✅ No conflicts detected with current aliases
 ```
 
 ---
@@ -419,10 +587,16 @@ Set-SpotifyConfig @{
 
 # Create custom aliases
 Set-SpotifyAlias -Alias 'music' -Command 'Show-SpotifyTrack'
-Set-SpotifyAlias -Alias 'vol' -Command 'volume'
+Set-SpotifyAlias -Alias 'v' -Command 'volume'
 
 # View all aliases
 Get-SpotifyAliases
+
+# Remove an alias
+Remove-SpotifyAlias -Alias 'music'
+
+# Check for alias conflicts
+Test-AliasConflicts
 
 # Set auto-refresh for 5 seconds
 Set-SpotifyConfig @{AutoRefreshInterval = 5}
