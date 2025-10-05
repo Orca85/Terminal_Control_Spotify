@@ -1,7 +1,7 @@
-# Spotify PowerShell Module
-# Lägg till i din PowerShell-profil för globala kommandon
+# Spotify PowerShell Module - Fixed Version
+# Simple, working version with core functionality
 
-#region Konfiguration
+#region Configuration
 $script:ClientId = $env:SPOTIFY_CLIENT_ID
 $script:ClientSecret = $env:SPOTIFY_CLIENT_SECRET
 $script:RedirectUri = "http://127.0.0.1:8888/callback"
@@ -12,7 +12,12 @@ $script:ConfigFile = Join-Path $script:AppDataDir "config.json"
 $script:TokenEndpoint = "https://accounts.spotify.com/api/token"
 $script:ApiBase = "https://api.spotify.com/v1"
 
-# Default configuration structure
+# Session storage for numbered references
+$script:SessionDevices = @()
+$script:SessionTracks = @()
+$script:SessionPlaylists = @()
+
+# Default configuration
 $script:DefaultConfig = @{
     PreferredDevice = $null
     CompactMode = $false
@@ -21,7 +26,7 @@ $script:DefaultConfig = @{
     LoggingEnabled = $false
     HistoryEnabled = $true
     MaxHistoryEntries = 100
-    LogLevel = "Info"  # Debug, Info, Warning, Error
+    LogLevel = "Info"
     MaxLogSizeMB = 10
     LogRetentionDays = 30
     Colors = @{
@@ -32,34 +37,596 @@ $script:DefaultConfig = @{
         Album = "Green"
         Progress = "Magenta"
     }
+    Aliases = @{
+        'spotify' = 'Show-SpotifyTrack'
+        'music' = 'Show-SpotifyTrack'
+        'vol' = 'volume'
+        'sh' = 'shuffle'
+        'rep' = 'repeat'
+        'tr' = 'transfer'
+        'q' = 'queue'
+        'pl' = 'playlists'
+        'help' = 'Get-SpotifyHelp'
+    }
 }
-
-# Logging configuration
-$script:LogFile = Join-Path $script:AppDataDir "spotify-cli.log"
-$script:HistoryFile = Join-Path $script:AppDataDir "playback-history.json"
-
-# Track previous track for notifications
-$script:PreviousTrackId = $null
 #endregion
 
-#region Windows Notification Functions
+#region Helper Functions
+function Initialize-TokenStore {
+    if (-not (Test-Path $script:AppDataDir)) { 
+        New-Item -ItemType Directory -Path $script:AppDataDir | Out-Null 
+    }
+    if (-not (Test-Path $script:TokenFile)) { 
+        '{}' | Set-Content -Path $script:TokenFile -Encoding UTF8 
+    }
+}
+
+function Get-StoredTokens {
+    Initialize-TokenStore
+    try {
+        $json = Get-Content -Path $script:TokenFile -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($json)) { return @{} }
+        return ($json | ConvertFrom-Json)
+    } catch { return @{} }
+}
+
+function Set-StoredTokens($Tokens) {
+    Initialize-TokenStore
+    ($Tokens | ConvertTo-Json -Depth 5) | Set-Content -Path $script:TokenFile -Encoding UTF8
+}
+
+function Get-SpotifyAccessToken {
+    $tokens = Get-StoredTokens
+    if (-not $tokens.access_token) {
+        Write-Host "🔐 Authentication required. Please run the main CLI script first to authenticate." -ForegroundColor Yellow
+        Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
+        return $null
+    }
+
+    # Check if token has required scopes for enhanced features
+    if (-not (Test-TokenScopes $tokens)) {
+        Write-Host "🔐 Token requires additional permissions. Please re-authenticate using the main CLI script." -ForegroundColor Yellow
+        Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
+        return $null
+    }
+
+    # Check if token is expired and refresh if needed
+    $obtained = [long]$tokens.obtained_at
+    $expiresIn = [int]$tokens.expires_in
+    $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $obtained
+    
+    if ($age -ge ($expiresIn - 60)) {
+        # Token is expired, try to refresh
+        if (-not $tokens.refresh_token) {
+            Write-Host "🔐 Token expired and no refresh token available. Please re-authenticate." -ForegroundColor Yellow
+            Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
+            return $null
+        }
+        
+        try {
+            $body = @{
+                grant_type = "refresh_token"
+                refresh_token = $tokens.refresh_token
+                client_id = $env:SPOTIFY_CLIENT_ID
+                client_secret = $env:SPOTIFY_CLIENT_SECRET
+            }
+            
+            $tokenResp = Invoke-RestMethod -Method Post -Uri "https://accounts.spotify.com/api/token" -Body $body
+            $tokens.access_token = $tokenResp.access_token
+            if ($tokenResp.refresh_token) { $tokens.refresh_token = $tokenResp.refresh_token }
+            $tokens.expires_in = $tokenResp.expires_in
+            $tokens.obtained_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+            Set-StoredTokens $tokens
+            
+            Write-Host "🔄 Token refreshed successfully" -ForegroundColor Green
+        } catch {
+            Write-Host "🔄 Token refresh failed. Please re-authenticate." -ForegroundColor Red
+            Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
+            return $null
+        }
+    }
+    
+    return $tokens.access_token
+}
+
+function Test-TokenScopes {
+    <#
+    .SYNOPSIS
+    Test if current token has required scopes for enhanced features
+    #>
+    param($Tokens)
+    
+    # If no scope information is stored, assume old token and require re-auth
+    if (-not $Tokens.scopes) {
+        return $false
+    }
+    
+    # Check if all required scopes are present
+    $requiredScopes = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-private playlist-read-private user-library-read user-library-modify user-read-recently-played user-top-read" -split ' '
+    $tokenScopes = $Tokens.scopes -split ' '
+    
+    foreach ($scope in $requiredScopes) {
+        if ($scope -notin $tokenScopes) {
+            Write-Verbose "Missing required scope: $scope"
+            return $false
+        }
+    }
+    
+    return $true
+}
+
+function Invoke-SpotifyApi {
+    param(
+        [Parameter(Mandatory)][ValidateSet('GET', 'POST', 'PUT', 'DELETE')][string]$Method,
+        [Parameter(Mandatory)][string]$Path,
+        [hashtable]$Query,
+        $Body
+    )
+    
+    $access = Get-SpotifyAccessToken
+    if (-not $access) { return $null }
+    
+    # Build the complete URI
+    $uri = "https://api.spotify.com/v1$Path"
+    
+    if ($Query -and $Query.Count -gt 0) {
+        $queryString = ($Query.GetEnumerator() | ForEach-Object { 
+            "$($_.Key)=$([System.Uri]::EscapeDataString($_.Value))" 
+        }) -join "&"
+        $uri += "?$queryString"
+    }
+    
+    $headers = @{ Authorization = "Bearer $access" }
+    
+    try {
+        if ($Body) {
+            return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 10)
+        } else {
+            return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers
+        }
+    } catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        
+        switch ($statusCode) {
+            401 {
+                Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+                Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+            }
+            403 {
+                Write-Host "🚫 Permission Error: This operation requires Spotify Premium." -ForegroundColor Red
+            }
+            404 {
+                if ($Path -like "*device*") {
+                    Write-Host "📱 No Active Device: Please start Spotify on any device first." -ForegroundColor Red
+                } else {
+                    Write-Host "❓ Not Found: The requested resource was not found." -ForegroundColor Red
+                }
+            }
+            429 {
+                Write-Host "⏳ Rate Limit: Too many requests. Please wait a moment." -ForegroundColor Yellow
+            }
+            default {
+                Write-Host "❌ API Error: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        return $null
+    }
+}
+
+function Get-SpotifyConfig {
+    if (-not (Test-Path $script:ConfigFile)) {
+        return $script:DefaultConfig.Clone()
+    }
+    try {
+        $json = Get-Content -Path $script:ConfigFile -Raw -ErrorAction Stop
+        $config = ($json | ConvertFrom-Json)
+        $result = $script:DefaultConfig.Clone()
+        
+        $config.PSObject.Properties | ForEach-Object {
+            if ($_.Name -eq "Colors" -and $_.Value) {
+                $result.Colors = @{}
+                $_.Value.PSObject.Properties | ForEach-Object {
+                    $result.Colors[$_.Name] = $_.Value
+                }
+            } elseif ($_.Name -eq "Aliases" -and $_.Value) {
+                $result.Aliases = @{}
+                $_.Value.PSObject.Properties | ForEach-Object {
+                    $result.Aliases[$_.Name] = $_.Value
+                }
+            } else {
+                $result[$_.Name] = $_.Value
+            }
+        }
+        return $result
+    } catch {
+        return $script:DefaultConfig.Clone()
+    }
+}
+
+function Set-SpotifyConfig {
+    param([hashtable]$Config)
+    try {
+        if (-not (Test-Path $script:AppDataDir)) {
+            New-Item -ItemType Directory -Path $script:AppDataDir | Out-Null
+        }
+        ($Config | ConvertTo-Json -Depth 5) | Set-Content -Path $script:ConfigFile -Encoding UTF8
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Format-Time {
+    param([int]$ms)
+    $totalSec = [int][Math]::Round($ms / 1000.0)
+    $m = [int]($totalSec / 60)
+    $s = $totalSec % 60
+    "{0}:{1:D2}" -f $m, $s
+}
+
+function Show-ProgressBar {
+    param([int]$Current, [int]$Total, [int]$Width = 30)
+    if ($Total -le 0) { return "[$("░" * $Width)] 0%" }
+    $percentage = [Math]::Round(($Current / $Total) * 100)
+    $filled = [Math]::Round(($Current / $Total) * $Width)
+    $empty = $Width - $filled
+    if ($filled -gt $Width) { $filled = $Width; $empty = 0 }
+    if ($filled -lt 0) { $filled = 0; $empty = $Width }
+    $bar = "█" * $filled + "░" * $empty
+    return "[$bar] $percentage%"
+}
+#endregion
+
+#region Core Commands
+function Show-SpotifyTrack {
+    param([string]$Mode)
+    
+    try {
+        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+        if (-not $currentTrack -or -not $currentTrack.item) {
+            Write-Host "No track currently playing" -ForegroundColor Yellow
+            return
+        }
+        
+        $config = Get-SpotifyConfig
+        $isCompact = ($Mode -eq "compact") -or $config.CompactMode
+        
+        $item = $currentTrack.item
+        $isPlaying = $currentTrack.is_playing
+        $progress = $currentTrack.progress_ms
+        $duration = $item.duration_ms
+        
+        if ($isCompact) {
+            $playIcon = if ($isPlaying) { "▶️" } else { "⏸️" }
+            $name = if ($item.name.Length -gt 25) { $item.name.Substring(0, 22) + "..." } else { $item.name }
+            $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+            if ($artists.Length -gt 20) { $artists = $artists.Substring(0, 17) + "..." }
+            $progressBar = Show-ProgressBar -Current $progress -Total $duration -Width 15
+            $timeInfo = "{0}/{1}" -f (Format-Time $progress), (Format-Time $duration)
+            Write-Host "$playIcon $name - $artists | $progressBar $timeInfo" -ForegroundColor Cyan
+        } else {
+            Write-Host "🎵 " -NoNewline -ForegroundColor Cyan
+            Write-Host $item.name -ForegroundColor Cyan
+            Write-Host "👤 " -NoNewline -ForegroundColor Yellow
+            Write-Host (($item.artists | ForEach-Object { $_.name }) -join ", ") -ForegroundColor Yellow
+            Write-Host "📀 " -NoNewline -ForegroundColor Green
+            Write-Host $item.album.name -ForegroundColor Green
+            
+            $progressBar = Show-ProgressBar -Current $progress -Total $duration
+            Write-Host $progressBar -ForegroundColor Magenta
+            
+            $timeInfo = "{0} / {1}" -f (Format-Time $progress), (Format-Time $duration)
+            $statusIcon = if ($isPlaying) { "▶️ Playing" } else { "⏸️ Paused" }
+            Write-Host "⏱ $timeInfo $statusIcon" -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "Error getting current track: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# Create alias for backward compatibility and easier typing
+function spotify-now {
+    param([string]$Mode)
+    Show-SpotifyTrack $Mode
+}
+
+function play {
+    param([string]$TrackReference)
+    
+    # If no parameter, just resume playback
+    if ([string]::IsNullOrWhiteSpace($TrackReference)) {
+        try {
+            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" | Out-Null
+            Write-Host "▶️ Resumed playback" -ForegroundColor Green
+        } catch {
+            Write-Host "❌ Could not resume playback" -ForegroundColor Red
+        }
+        return
+    }
+    
+    $trackUri = $TrackReference
+    
+    # Check if it's a number (track index from search)
+    if ($TrackReference -match '^\d+$') {
+        $trackIndex = [int]$TrackReference - 1
+        if ($script:SessionTracks -and $trackIndex -ge 0 -and $trackIndex -lt $script:SessionTracks.Count) {
+            $trackUri = $script:SessionTracks[$trackIndex].uri
+            $trackName = $script:SessionTracks[$trackIndex].name
+            $artists = ($script:SessionTracks[$trackIndex].artists | ForEach-Object { $_.name }) -join ", "
+            Write-Host "🎯 Playing track #$TrackReference ($trackName by $artists)..." -ForegroundColor Cyan
+        } else {
+            Write-Host "❌ Invalid track number. Use 'search' to find tracks first." -ForegroundColor Red
+            return
+        }
+    }
+    
+    # Ensure it's a valid Spotify URI
+    if (-not $trackUri.StartsWith("spotify:track:")) {
+        Write-Host "❌ Invalid track URI. Must start with 'spotify:track:'" -ForegroundColor Red
+        return
+    }
+    
+    try {
+        $body = @{ uris = @($trackUri) }
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
+        Write-Host "▶️ Playing track" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not play track" -ForegroundColor Red
+    }
+}
+
+function pause {
+    try {
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause" | Out-Null
+        Write-Host "⏸️ Paused playback" -ForegroundColor Yellow
+    } catch {
+        Write-Host "❌ Could not pause playback" -ForegroundColor Red
+    }
+}
+
+function next {
+    try {
+        Invoke-SpotifyApi -Method POST -Path "/me/player/next" | Out-Null
+        Write-Host "⏭️ Skipped to next track" -ForegroundColor Green
+        
+        # Wait a moment for Spotify to update, then show notification
+        Start-Sleep -Milliseconds 500
+        
+        # Get current track info and show notification
+        try {
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if ($currentTrack -and $currentTrack.item) {
+                Show-TrackNotification -TrackInfo $currentTrack.item
+            }
+        } catch {
+            # If we can't get track info, show generic notification
+            Show-TrackNotification -Title "Spotify" -Message "Skipped to next track"
+        }
+    } catch {
+        Write-Host "❌ Could not skip to next track" -ForegroundColor Red
+    }
+}
+
+function previous {
+    try {
+        Invoke-SpotifyApi -Method POST -Path "/me/player/previous" | Out-Null
+        Write-Host "⏮️ Skipped to previous track" -ForegroundColor Green
+        
+        # Wait a moment for Spotify to update, then show notification
+        Start-Sleep -Milliseconds 500
+        
+        # Get current track info and show notification
+        try {
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if ($currentTrack -and $currentTrack.item) {
+                Show-TrackNotification -TrackInfo $currentTrack.item
+            }
+        } catch {
+            # If we can't get track info, show generic notification
+            Show-TrackNotification -Title "Spotify" -Message "Skipped to previous track"
+        }
+    } catch {
+        Write-Host "❌ Could not skip to previous track" -ForegroundColor Red
+    }
+}
+
+function devices {
+    try {
+        $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
+        if (-not $devicesResponse -or -not $devicesResponse.devices) {
+            Write-Host "No devices found" -ForegroundColor Yellow
+            return
+        }
+        
+        # Store devices in session for numbered reference
+        $script:SessionDevices = $devicesResponse.devices
+        
+        Write-Host "📱 Available Devices:" -ForegroundColor Cyan
+        $i = 1
+        foreach ($device in $devicesResponse.devices) {
+            $deviceIcon = switch ($device.type.ToLower()) {
+                "computer" { "💻" }
+                "smartphone" { "📱" }
+                "speaker" { "🔊" }
+                "tv" { "📺" }
+                default { "🎵" }
+            }
+            
+            $activeStatus = if ($device.is_active) { "Active" } else { "Inactive" }
+            $volumeInfo = if ($device.volume_percent -ne $null) { ", Volume: $($device.volume_percent)%" } else { "" }
+            
+            Write-Host "$i. $deviceIcon $($device.name) ($($device.type)) - $activeStatus$volumeInfo" -ForegroundColor White
+            $i++
+        }
+        Write-Host ""
+        Write-Host "💡 Tip: Use 'transfer 1' to switch to device #1" -ForegroundColor Gray
+    } catch {
+        Write-Host "❌ Could not get devices" -ForegroundColor Red
+    }
+}
+
+function search {
+    param([string]$Query)
+    
+    if ([string]::IsNullOrWhiteSpace($Query)) {
+        Write-Host "Usage: search '<query>'" -ForegroundColor Yellow
+        return
+    }
+    
+    try {
+        $searchQuery = @{ 
+            q = $Query
+            type = "track,artist,album"
+            limit = "10"
+        }
+        Write-Host "Searching for: $Query" -ForegroundColor Gray
+        $results = Invoke-SpotifyApi -Method GET -Path "/search" -Query $searchQuery
+        
+        if (-not $results) { return }
+        
+        Write-Host "🔍 Search Results for '$Query':" -ForegroundColor Cyan
+        Write-Host ""
+        
+        if ($results.tracks -and $results.tracks.items) {
+            # Store tracks in session for numbered reference
+            $script:SessionTracks = $results.tracks.items[0..9]  # Store up to 10 tracks
+            
+            Write-Host "TRACKS:" -ForegroundColor Yellow
+            $i = 1
+            foreach ($track in $results.tracks.items[0..4]) {
+                $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+                Write-Host "$i. $($track.name) - $artists ($($track.album.name))" -ForegroundColor White
+                $i++
+            }
+            Write-Host ""
+            Write-Host "💡 Tip: Use 'play 1' to play track #1, or 'queue 2' to add track #2 to queue" -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "❌ Search failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function Get-SpotifyHelp {
+    param([string]$Command)
+    
+    if ([string]::IsNullOrWhiteSpace($Command)) {
+        Write-Host "🎵 Spotify CLI - Complete Global Commands Help" -ForegroundColor Cyan
+        Write-Host "=============================================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "BASIC PLAYBACK:" -ForegroundColor Yellow
+        Write-Host "  spotify / music      - Show current track (detailed)" -ForegroundColor White
+        Write-Host "  spotify-now          - Show current track (compact)" -ForegroundColor White
+        Write-Host "  play                 - Resume playback" -ForegroundColor White
+        Write-Host "  pause                - Pause playback" -ForegroundColor White
+        Write-Host "  next                 - Skip to next track" -ForegroundColor White
+        Write-Host "  previous             - Skip to previous track" -ForegroundColor White
+        Write-Host ""
+        Write-Host "ADVANCED CONTROLS:" -ForegroundColor Yellow
+        Write-Host "  volume 75 / vol 75   - Set volume to 75%" -ForegroundColor White
+        Write-Host "  seek 30              - Seek forward 30 seconds (negative for backward)" -ForegroundColor White
+        Write-Host "  shuffle on / sh on   - Enable shuffle (on/off/toggle)" -ForegroundColor White
+        Write-Host "  repeat track / rep track - Set repeat mode (track/context/off)" -ForegroundColor White
+        Write-Host ""
+        Write-Host "DEVICE MANAGEMENT:" -ForegroundColor Yellow
+        Write-Host "  devices              - List available Spotify devices" -ForegroundColor White
+        Write-Host "  transfer <id> / tr <id> - Transfer playback to device" -ForegroundColor White
+        Write-Host ""
+        Write-Host "SEARCH & QUEUE:" -ForegroundColor Yellow
+        Write-Host "  search '<query>'     - Search for tracks, artists, albums" -ForegroundColor White
+        Write-Host "  queue <uri> / q <uri> - Add track to playback queue" -ForegroundColor White
+        Write-Host ""
+        Write-Host "LIBRARY MANAGEMENT:" -ForegroundColor Yellow
+        Write-Host "  playlists / pl       - Show your playlists" -ForegroundColor White
+        Write-Host "  liked                - Show your liked songs" -ForegroundColor White
+        Write-Host "  recent               - Show recently played tracks" -ForegroundColor White
+        Write-Host "  save-track           - Save current track to library" -ForegroundColor White
+        Write-Host "  unsave-track         - Remove current track from library" -ForegroundColor White
+        Write-Host ""
+        Write-Host "CONFIGURATION:" -ForegroundColor Yellow
+        Write-Host "  Get-SpotifyConfig    - View current settings" -ForegroundColor White
+        Write-Host "  Set-SpotifyConfig    - Modify settings" -ForegroundColor White
+        Write-Host "  notifications on/off - Control notifications" -ForegroundColor White
+        Write-Host "  Test-SpotifyAuth     - Check authentication status" -ForegroundColor White
+        Write-Host ""
+        Write-Host "ALIAS MANAGEMENT:" -ForegroundColor Yellow
+        Write-Host "  Get-SpotifyAliases   - Show all configured aliases" -ForegroundColor White
+        Write-Host "  Set-SpotifyAlias     - Create custom alias" -ForegroundColor White
+        Write-Host "  Remove-SpotifyAlias  - Remove custom alias" -ForegroundColor White
+        Write-Host "  Test-AliasConflicts  - Check for PowerShell conflicts" -ForegroundColor White
+        Write-Host ""
+        Write-Host "HELP:" -ForegroundColor Yellow
+        Write-Host "  Get-SpotifyHelp / help - Show this help" -ForegroundColor White
+        Write-Host "  spotify-help         - Short alias for help" -ForegroundColor White
+        Write-Host ""
+        Write-Host "EXAMPLES:" -ForegroundColor Green
+        Write-Host "  spotify-now" -ForegroundColor Gray
+        Write-Host "  Show-SpotifyTrack compact" -ForegroundColor Gray
+        Write-Host "  search 'bohemian rhapsody'" -ForegroundColor Gray
+        Write-Host "  Set-SpotifyConfig @{CompactMode=`$true}" -ForegroundColor Gray
+        return
+    }
+    
+    switch ($Command.ToLower()) {
+        "spotify-now" {
+            Write-Host "COMMAND: spotify-now [compact]" -ForegroundColor Cyan
+            Write-Host "Shows current track information" -ForegroundColor White
+            Write-Host "Use 'compact' for single-line display" -ForegroundColor Gray
+        }
+        "show-spotifytrack" {
+            Write-Host "COMMAND: Show-SpotifyTrack [compact]" -ForegroundColor Cyan
+            Write-Host "Shows current track information" -ForegroundColor White
+            Write-Host "Use 'compact' for single-line display" -ForegroundColor Gray
+        }
+        "search" {
+            Write-Host "COMMAND: search '<query>'" -ForegroundColor Cyan
+            Write-Host "Search for tracks, artists, and albums" -ForegroundColor White
+            Write-Host "Example: search 'the beatles'" -ForegroundColor Gray
+        }
+        "notifications" {
+            Write-Host "COMMAND: notifications [on|off|status|test]" -ForegroundColor Cyan
+            Write-Host "Control Windows toast notifications for track changes" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Options:" -ForegroundColor Yellow
+            Write-Host "  on      - Enable notifications" -ForegroundColor White
+            Write-Host "  off     - Disable notifications" -ForegroundColor White
+            Write-Host "  status  - Show current status (default)" -ForegroundColor White
+            Write-Host "  test    - Test notification system" -ForegroundColor White
+        }
+        default {
+            Write-Host "Unknown command: $Command" -ForegroundColor Red
+            Write-Host "Available commands for detailed help:" -ForegroundColor Yellow
+            Write-Host "  spotify-now, show-spotifytrack, search, notifications" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Use Get-SpotifyHelp for all commands" -ForegroundColor Yellow
+        }
+    }
+}
+
+function spotify-help {
+    param([string]$Command)
+    Get-SpotifyHelp $Command
+}
+
 function Show-TrackNotification {
     <#
     .SYNOPSIS
     Display a Windows notification for track changes
-    .PARAMETER Title
-    Notification title
-    .PARAMETER Message
-    Notification message
     .PARAMETER TrackInfo
     Track information object from Spotify API
+    .PARAMETER Title
+    Custom notification title
+    .PARAMETER Message
+    Custom notification message
     .PARAMETER IsTest
     Whether this is a test notification
     #>
     param(
+        $TrackInfo,
         [string]$Title,
         [string]$Message,
-        $TrackInfo,
         [bool]$IsTest = $false
     )
     
@@ -81,8 +648,8 @@ function Show-TrackNotification {
                 $notificationText += " from $album"
             }
         } else {
-            $notificationTitle = $Title
-            $notificationText = $Message
+            $notificationTitle = if ($Title) { $Title } else { "Spotify CLI" }
+            $notificationText = if ($Message) { $Message } else { "Notification" }
         }
         
         # Try Windows 10+ toast notifications first
@@ -90,22 +657,18 @@ function Show-TrackNotification {
             try {
                 # Use PowerShell's built-in toast notification capability
                 $null = New-BurntToastNotification -Text $notificationTitle, $notificationText -Silent -ErrorAction Stop
-                Write-DebugLog -Message "BurntToast notification displayed: $notificationTitle" -Component "Notifications"
                 return
             } catch {
                 # BurntToast module not available, try alternative approach
-                Write-DebugLog -Message "BurntToast not available, trying alternative notification method" -Component "Notifications"
             }
             
             try {
                 # Alternative: Use Windows Shell notification
                 $shell = New-Object -ComObject "Wscript.Shell"
                 $shell.Popup($notificationText, 5, $notificationTitle, 64) | Out-Null
-                Write-DebugLog -Message "Shell popup notification displayed: $notificationTitle" -Component "Notifications"
                 return
             } catch {
                 # Shell popup failed, continue to fallback
-                Write-DebugLog -Message "Shell popup failed, using console fallback" -Component "Notifications"
             }
         }
         
@@ -113,18 +676,15 @@ function Show-TrackNotification {
         if ($TrackInfo) {
             Write-Host "🎵 Now Playing: $($TrackInfo.name) by $(($TrackInfo.artists | ForEach-Object { $_.name }) -join ', ')" -ForegroundColor Cyan
         } else {
-            Write-Host "🔔 $Title`: $Message" -ForegroundColor Cyan
+            Write-Host "🔔 $notificationTitle`: $notificationText" -ForegroundColor Cyan
         }
-        Write-DebugLog -Message "Console notification displayed: $notificationTitle" -Component "Notifications"
         
     } catch {
-        Write-DebugLog -Message "Failed to show notification: $($_.Exception.Message)" -Component "Notifications" -Exception $_
-        
         # Final fallback to console notification
         if ($TrackInfo) {
             Write-Host "🎵 Now Playing: $($TrackInfo.name) by $(($TrackInfo.artists | ForEach-Object { $_.name }) -join ', ')" -ForegroundColor Cyan
         } else {
-            Write-Host "🔔 $Title`: $Message" -ForegroundColor Cyan
+            Write-Host "🔔 $notificationTitle`: $notificationText" -ForegroundColor Cyan
         }
     }
 }
@@ -133,8 +693,6 @@ function Test-NotificationSupport {
     <#
     .SYNOPSIS
     Test if Windows notifications are supported on this system
-    .DESCRIPTION
-    Checks Windows version and available notification methods
     #>
     try {
         # Check Windows version
@@ -180,3321 +738,15 @@ function Test-NotificationSupport {
     }
 }
 
-function Initialize-NotificationSystem {
-    <#
-    .SYNOPSIS
-    Initialize the notification system and check compatibility
-    #>
-    $support = Test-NotificationSupport
-    
-    if (-not $support.Supported) {
-        Write-WarningLog -Message "Notification system not supported: $($support.Reason)" -Component "Notifications"
-        
-        # Disable notifications in config if not supported
-        $config = Get-SpotifyConfig
-        if ($config.NotificationsEnabled) {
-            $config.NotificationsEnabled = $false
-            Set-SpotifyConfig -Config $config
-            Write-Host "⚠️ Notifications disabled: $($support.Reason)" -ForegroundColor Yellow
-        }
-        return $false
-    }
-    
-    Write-DebugLog -Message "Notification system initialized successfully" -Component "Notifications"
-    return $true
-}
-
-function Update-TrackNotification {
-    <#
-    .SYNOPSIS
-    Check for track changes and show notifications if enabled
-    .PARAMETER CurrentTrack
-    Current track information from Spotify API
-    #>
-    param($CurrentTrack)
-    
-    $config = Get-SpotifyConfig
-    if (-not $config.NotificationsEnabled) {
-        return
-    }
-    
-    if (-not $CurrentTrack -or -not $CurrentTrack.item) {
-        return
-    }
-    
-    $currentTrackId = $CurrentTrack.item.id
-    
-    # Check if track has changed
-    if ($script:PreviousTrackId -and $script:PreviousTrackId -ne $currentTrackId) {
-        # Track has changed, show notification
-        Show-TrackNotification -TrackInfo $CurrentTrack.item
-        Write-DebugLog -Message "Track changed notification sent: $($CurrentTrack.item.name)" -Component "Notifications"
-    }
-    
-    # Update previous track ID
-    $script:PreviousTrackId = $currentTrackId
-}
-#endregion
-
-#region Hjälpfunktioner
-function Initialize-TokenStore {
-    if (-not (Test-Path $script:AppDataDir)) { New-Item -ItemType Directory -Path $script:AppDataDir | Out-Null }
-    if (-not (Test-Path $script:TokenFile)) { '{}' | Set-Content -Path $script:TokenFile -Encoding UTF8 }
-}
-
-function Get-StoredTokens {
-    Initialize-TokenStore
-    try {
-        $json = Get-Content -Path $script:TokenFile -Raw -ErrorAction Stop
-        if ([string]::IsNullOrWhiteSpace($json)) { return @{} }
-        return ($json | ConvertFrom-Json)
-    } catch { return @{} }
-}
-
-function Set-StoredTokens($Tokens) {
-    Initialize-TokenStore
-    ($Tokens | ConvertTo-Json -Depth 5) | Set-Content -Path $script:TokenFile -Encoding UTF8
-}
-
-#region Logging Functions
-function Initialize-LoggingSystem {
-    <#
-    .SYNOPSIS
-    Initialize the logging system and create necessary directories and files
-    #>
-    if (-not (Test-Path $script:AppDataDir)) { 
-        New-Item -ItemType Directory -Path $script:AppDataDir | Out-Null 
-    }
-    
-    # Initialize log file if it doesn't exist
-    if (-not (Test-Path $script:LogFile)) {
-        $initialLogEntry = @{
-            Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-            Level = "Info"
-            Message = "Spotify CLI logging system initialized"
-            Component = "System"
-        }
-        Write-LogEntry -LogEntry $initialLogEntry
-    }
-    
-    # Initialize history file if it doesn't exist
-    if (-not (Test-Path $script:HistoryFile)) {
-        '[]' | Set-Content -Path $script:HistoryFile -Encoding UTF8
-    }
-    
-    # Perform log maintenance
-    Invoke-LogMaintenance
-}
-
-function Write-LogEntry {
-    <#
-    .SYNOPSIS
-    Write a log entry to the log file
-    .PARAMETER LogEntry
-    Hashtable containing log entry information
-    .PARAMETER Level
-    Log level (Debug, Info, Warning, Error)
-    .PARAMETER Message
-    Log message
-    .PARAMETER Component
-    Component that generated the log entry
-    .PARAMETER Exception
-    Exception object if applicable
-    #>
-    param(
-        [hashtable]$LogEntry,
-        [ValidateSet("Debug", "Info", "Warning", "Error")]
-        [string]$Level = "Info",
-        [string]$Message,
-        [string]$Component = "General",
-        [System.Exception]$Exception
-    )
-    
-    $config = Get-SpotifyConfig
-    if (-not $config.LoggingEnabled) { return }
-    
-    Initialize-LoggingSystem
-    
-    # Create log entry if not provided
-    if (-not $LogEntry) {
-        $LogEntry = @{
-            Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-            Level = $Level
-            Message = $Message
-            Component = $Component
-        }
-        
-        if ($Exception) {
-            $LogEntry.Exception = @{
-                Type = $Exception.GetType().Name
-                Message = $Exception.Message
-                StackTrace = $Exception.StackTrace
-            }
-        }
-    }
-    
-    # Check if we should log this level
-    $configLevel = $config.LogLevel
-    $levelPriority = @{ "Debug" = 0; "Info" = 1; "Warning" = 2; "Error" = 3 }
-    
-    if ($levelPriority[$LogEntry.Level] -lt $levelPriority[$configLevel]) {
-        return
-    }
-    
-    try {
-        # Convert to JSON and append to log file
-        $logLine = ($LogEntry | ConvertTo-Json -Compress)
-        Add-Content -Path $script:LogFile -Value $logLine -Encoding UTF8
-    } catch {
-        # If logging fails, we can't log the error, so just continue silently
-    }
-}
-
-function Write-DebugLog {
-    <#
-    .SYNOPSIS
-    Write a debug log entry
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [string]$Message,
-        [string]$Component = "General",
-        [System.Exception]$Exception
-    )
-    
-    Write-LogEntry -Level "Debug" -Message $Message -Component $Component -Exception $Exception
-}
-
-function Write-InfoLog {
-    <#
-    .SYNOPSIS
-    Write an info log entry
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [string]$Message,
-        [string]$Component = "General"
-    )
-    
-    Write-LogEntry -Level "Info" -Message $Message -Component $Component
-}
-
-function Write-WarningLog {
-    <#
-    .SYNOPSIS
-    Write a warning log entry
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [string]$Message,
-        [string]$Component = "General",
-        [System.Exception]$Exception
-    )
-    
-    Write-LogEntry -Level "Warning" -Message $Message -Component $Component -Exception $Exception
-}
-
-function Write-ErrorLog {
-    <#
-    .SYNOPSIS
-    Write an error log entry
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [string]$Message,
-        [string]$Component = "General",
-        [System.Exception]$Exception
-    )
-    
-    Write-LogEntry -Level "Error" -Message $Message -Component $Component -Exception $Exception
-}
-
-function Invoke-LogMaintenance {
-    <#
-    .SYNOPSIS
-    Perform log file maintenance including rotation and cleanup
-    #>
-    $config = Get-SpotifyConfig
-    if (-not $config.LoggingEnabled) { return }
-    
-    try {
-        # Check log file size and rotate if necessary
-        if (Test-Path $script:LogFile) {
-            $logFileInfo = Get-Item $script:LogFile
-            $maxSizeBytes = $config.MaxLogSizeMB * 1MB
-            
-            if ($logFileInfo.Length -gt $maxSizeBytes) {
-                # Rotate log file
-                $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-                $rotatedLogFile = Join-Path $script:AppDataDir "spotify-cli-$timestamp.log"
-                Move-Item -Path $script:LogFile -Destination $rotatedLogFile
-                
-                # Create new log file
-                Write-InfoLog -Message "Log file rotated to $rotatedLogFile" -Component "LogMaintenance"
-            }
-        }
-        
-        # Clean up old rotated log files
-        $cutoffDate = (Get-Date).AddDays(-$config.LogRetentionDays)
-        Get-ChildItem -Path $script:AppDataDir -Filter "spotify-cli-*.log" | 
-            Where-Object { $_.CreationTime -lt $cutoffDate } |
-            Remove-Item -Force
-            
-    } catch {
-        # If maintenance fails, continue silently
-    }
-}
-
-function Get-LogEntries {
-    <#
-    .SYNOPSIS
-    Retrieve log entries from the log file
-    .PARAMETER Level
-    Filter by log level
-    .PARAMETER Component
-    Filter by component
-    .PARAMETER Last
-    Number of last entries to retrieve
-    .PARAMETER Since
-    Retrieve entries since this datetime
-    #>
-    param(
-        [ValidateSet("Debug", "Info", "Warning", "Error")]
-        [string]$Level,
-        [string]$Component,
-        [int]$Last = 50,
-        [DateTime]$Since
-    )
-    
-    if (-not (Test-Path $script:LogFile)) {
-        return @()
-    }
-    
-    try {
-        $logLines = Get-Content -Path $script:LogFile -Encoding UTF8
-        $logEntries = @()
-        
-        foreach ($line in $logLines) {
-            if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            
-            try {
-                $entry = $line | ConvertFrom-Json
-                
-                # Apply filters
-                if ($Level -and $entry.Level -ne $Level) { continue }
-                if ($Component -and $entry.Component -ne $Component) { continue }
-                if ($Since -and [DateTime]::Parse($entry.Timestamp) -lt $Since) { continue }
-                
-                $logEntries += $entry
-            } catch {
-                # Skip malformed log entries
-                continue
-            }
-        }
-        
-        # Return last N entries
-        if ($Last -gt 0 -and $logEntries.Count -gt $Last) {
-            return $logEntries[-$Last..-1]
-        }
-        
-        return $logEntries
-    } catch {
-        return @()
-    }
-}
-#endregion
-
-#region Playback History Functions
-function Add-PlaybackHistoryEntry {
-    <#
-    .SYNOPSIS
-    Add a track to the playback history
-    .PARAMETER TrackInfo
-    Track information from Spotify API
-    #>
-    param(
-        [Parameter(Mandatory)]
-        $TrackInfo
-    )
-    
-    $config = Get-SpotifyConfig
-    if (-not $config.HistoryEnabled) { return }
-    
-    Initialize-LoggingSystem
-    
-    try {
-        # Create history entry
-        $historyEntry = @{
-            Timestamp = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-            TrackId = $TrackInfo.id
-            TrackName = $TrackInfo.name
-            Artists = ($TrackInfo.artists | ForEach-Object { $_.name }) -join ", "
-            Album = $TrackInfo.album.name
-            Duration = $TrackInfo.duration_ms
-            Uri = $TrackInfo.uri
-            ExternalUrl = $TrackInfo.external_urls.spotify
-        }
-        
-        # Read existing history
-        $history = Get-PlaybackHistory -All
-        
-        # Add new entry at the beginning
-        $history = @($historyEntry) + $history
-        
-        # Limit history size
-        if ($history.Count -gt $config.MaxHistoryEntries) {
-            $history = $history[0..($config.MaxHistoryEntries - 1)]
-        }
-        
-        # Save updated history
-        ($history | ConvertTo-Json -Depth 5) | Set-Content -Path $script:HistoryFile -Encoding UTF8
-        
-        Write-DebugLog -Message "Added track to playback history: $($TrackInfo.name)" -Component "PlaybackHistory"
-        
-    } catch {
-        Write-ErrorLog -Message "Failed to add playback history entry" -Component "PlaybackHistory" -Exception $_
-    }
-}
-
-function Get-PlaybackHistory {
-    <#
-    .SYNOPSIS
-    Retrieve playback history entries
-    .PARAMETER Last
-    Number of last entries to retrieve
-    .PARAMETER All
-    Retrieve all entries
-    #>
-    param(
-        [int]$Last = 20,
-        [switch]$All
-    )
-    
-    if (-not (Test-Path $script:HistoryFile)) {
-        return @()
-    }
-    
-    try {
-        $json = Get-Content -Path $script:HistoryFile -Raw -Encoding UTF8
-        if ([string]::IsNullOrWhiteSpace($json)) {
-            return @()
-        }
-        
-        $history = $json | ConvertFrom-Json
-        
-        if ($All) {
-            return $history
-        }
-        
-        if ($Last -gt 0 -and $history.Count -gt $Last) {
-            return $history[0..($Last - 1)]
-        }
-        
-        return $history
-    } catch {
-        Write-ErrorLog -Message "Failed to read playback history" -Component "PlaybackHistory" -Exception $_
-        return @()
-    }
-}
-
-function Clear-PlaybackHistory {
-    <#
-    .SYNOPSIS
-    Clear the playback history
-    #>
-    try {
-        '[]' | Set-Content -Path $script:HistoryFile -Encoding UTF8
-        Write-InfoLog -Message "Playback history cleared" -Component "PlaybackHistory"
-        Write-Host "✅ Playback history cleared" -ForegroundColor Green
-    } catch {
-        Write-ErrorLog -Message "Failed to clear playback history" -Component "PlaybackHistory" -Exception $_
-        Write-Host "❌ Failed to clear playback history" -ForegroundColor Red
-    }
-}
-#endregion
-
-function Start-SpotifyAuthentication {
-    Write-Host "Startar autentisering mot Spotify..."
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add(($script:RedirectUri.TrimEnd('/') + "/"))
-    try {
-        $listener.Start()
-    } catch {
-        Write-Host "🔐 Authentication Setup Error" -ForegroundColor Red
-        Write-Host "Could not start local authentication server." -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "SOLUTION:" -ForegroundColor Green
-        Write-Host "• Run PowerShell as Administrator" -ForegroundColor White
-        Write-Host "• Make sure port 8888 is not in use by another application" -ForegroundColor White
-        Write-Host "• Check Windows Firewall settings" -ForegroundColor White
-        return $null
-    }
-
-    $state = [Guid]::NewGuid().ToString()
-    $authUrl = "https://accounts.spotify.com/authorize?response_type=code&client_id=$($script:ClientId)&redirect_uri=$($script:RedirectUri)&scope=$($script:Scopes)&state=$state"
-
-    Start-Process $authUrl | Out-Null
-    Write-Host "Öppnade webbläsaren. Logga in och godkänn appen..."
-
-    $context = $listener.GetContext()
-    $request = $context.Request
-    $response = $context.Response
-
-    $query = $request.Url.Query
-    $params = [System.Web.HttpUtility]::ParseQueryString($query)
-    $code = $params["code"]
-    $retState = $params["state"]
-    $authError = $params["error"]
-
-    $html = "<html><body style='font-family:sans-serif'><h2>Klart!</h2><p>Du kan stänga denna flik.</p></body></html>"
-    $buffer = [System.Text.Encoding]::UTF8.GetBytes($html)
-    $response.ContentLength64 = $buffer.Length
-    $response.OutputStream.Write($buffer, 0, $buffer.Length)
-    $response.OutputStream.Close()
-    $listener.Stop()
-
-    if ($authError) { 
-        Write-Host "🚫 Authentication Error" -ForegroundColor Red
-        Write-Host "Spotify authentication failed: $authError" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "COMMON CAUSES:" -ForegroundColor Yellow
-        Write-Host "• User denied access to the application" -ForegroundColor White
-        Write-Host "• Invalid client credentials" -ForegroundColor White
-        Write-Host "• Network connectivity issues" -ForegroundColor White
-        return $null
-    }
-    if ($retState -ne $state) {
-        Write-Host "🔒 Security Error" -ForegroundColor Red
-        Write-Host "Authentication state mismatch detected." -ForegroundColor Yellow
-        Write-Host "This could indicate a security issue. Please try again." -ForegroundColor White
-        return $null
-    }
-    if (-not $code) {
-        Write-Host "❌ Authentication Failed" -ForegroundColor Red
-        Write-Host "No authorization code received from Spotify." -ForegroundColor Yellow
-        Write-Host "Please try the authentication process again." -ForegroundColor White
-        return $null
-    }
-
-    $body = @{
-        grant_type = "authorization_code"
-        code = $code
-        redirect_uri = $script:RedirectUri
-        client_id = $script:ClientId
-        client_secret = $script:ClientSecret
-    }
-
-    $tokenResp = Invoke-RestMethod -Method Post -Uri $script:TokenEndpoint -Body $body
-    $tokens = [ordered]@{
-        access_token = $tokenResp.access_token
-        token_type = $tokenResp.token_type
-        expires_in = $tokenResp.expires_in
-        refresh_token = $tokenResp.refresh_token
-        obtained_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        scopes = $script:Scopes
-    }
-    Set-StoredTokens $tokens
-    Write-Host "Autentisering slutförd."
-    return $tokens
-}
-
-function Test-TokenScopes {
-    <#
-    .SYNOPSIS
-    Test if current token has required scopes for enhanced features
-    .DESCRIPTION
-    Checks if the stored token was obtained with the current scope requirements.
-    Returns false if scopes are insufficient, triggering re-authentication.
-    #>
-    param($Tokens)
-    
-    # If no scope information is stored, assume old token and require re-auth
-    if (-not $Tokens.scopes) {
-        return $false
-    }
-    
-    # Check if all required scopes are present
-    $requiredScopes = $script:Scopes -split ' '
-    $tokenScopes = $Tokens.scopes -split ' '
-    
-    foreach ($scope in $requiredScopes) {
-        if ($scope -notin $tokenScopes) {
-            Write-Verbose "Missing required scope: $scope"
-            return $false
-        }
-    }
-    
-    return $true
-}
-
-function Get-SpotifyAccessToken {
-    $tokens = Get-StoredTokens
-    if (-not $tokens.access_token) {
-        $tokens = Start-SpotifyAuthentication
-        if (-not $tokens) { return $null }
-        return $tokens.access_token
-    }
-
-    # Check if token has required scopes for enhanced features
-    if (-not (Test-TokenScopes $tokens)) {
-        Write-Host "Token requires additional permissions for enhanced features. Re-authenticating..." -ForegroundColor Yellow
-        $tokens = Start-SpotifyAuthentication
-        if (-not $tokens) { return $null }
-        return $tokens.access_token
-    }
-
-    $obtained = [long]$tokens.obtained_at
-    $expiresIn = [int]$tokens.expires_in
-    $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $obtained
-    if ($age -ge ($expiresIn - 60)) {
-        if (-not $tokens.refresh_token) {
-            $tokens = Start-SpotifyAuthentication
-            if (-not $tokens) { return $null }
-            return $tokens.access_token
-        }
-        $body = @{
-            grant_type = "refresh_token"
-            refresh_token = $tokens.refresh_token
-            client_id = $script:ClientId
-            client_secret = $script:ClientSecret
-        }
-        try {
-            $tokenResp = Invoke-RestMethod -Method Post -Uri $script:TokenEndpoint -Body $body
-            $tokens.access_token = $tokenResp.access_token
-            if ($tokenResp.refresh_token) { $tokens.refresh_token = $tokenResp.refresh_token }
-            $tokens.expires_in = $tokenResp.expires_in
-            $tokens.obtained_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-            Set-StoredTokens $tokens
-        } catch {
-            Write-Host "🔄 Token Refresh Failed" -ForegroundColor Red
-            Write-Host "Could not refresh access token. Re-authenticating..." -ForegroundColor Yellow
-            $tokens = Start-SpotifyAuthentication
-            if (-not $tokens) { return $null }
-        }
-    }
-    return $tokens.access_token
-}
-
-function Invoke-SpotifyApi {
-    param(
-        [Parameter(Mandatory)][ValidateSet('GET', 'POST', 'PUT', 'DELETE')][string]$Method,
-        [Parameter(Mandatory)][string]$Path,
-        [hashtable]$Query,
-        $Body
-    )
-    
-    Write-DebugLog -Message "API Request: $Method $Path" -Component "SpotifyAPI"
-    
-    $access = Get-SpotifyAccessToken
-    if (-not $access) { 
-        Write-ErrorLog -Message "Could not obtain access token for API request: $Method $Path" -Component "SpotifyAPI"
-        Write-Host "🔐 Authentication Required" -ForegroundColor Red
-        Write-Host "Could not obtain access token. Please authenticate with Spotify." -ForegroundColor Yellow
-        return 
-    }
-    
-    $uri = $script:ApiBase + $Path
-    if ($Query) {
-        $q = ($Query.GetEnumerator() | ForEach-Object { "{0}={1}" -f $_.Key, [System.Uri]::EscapeDataString([string]$_.Value) }) -join "&"
-        $uri = "$uri?$q"
-        Write-DebugLog -Message "API Request URI with query: $uri" -Component "SpotifyAPI"
-    }
-    
-    $headers = @{ Authorization = "Bearer $access" }
-    
-    try {
-        $startTime = Get-Date
-        
-        if ($Body) {
-            $jsonBody = $Body | ConvertTo-Json -Depth 10
-            Write-DebugLog -Message "API Request body: $jsonBody" -Component "SpotifyAPI"
-            $result = Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -ContentType "application/json" -Body $jsonBody
-        } else {
-            $result = Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers
-        }
-        
-        $duration = (Get-Date) - $startTime
-        Write-DebugLog -Message "API Request completed successfully in $($duration.TotalMilliseconds)ms: $Method $Path" -Component "SpotifyAPI"
-        
-        return $result
-    } catch {
-        $duration = (Get-Date) - $startTime
-        Write-ErrorLog -Message "API Request failed after $($duration.TotalMilliseconds)ms: $Method $Path - $($_.Exception.Message)" -Component "SpotifyAPI" -Exception $_
-        throw
-    }
-}
-
-function ConvertTo-TimeString {
-    param([int]$ms)
-    $totalSec = [int][Math]::Round($ms / 1000.0)
-    $m = [int]($totalSec / 60)
-    $s = $totalSec % 60
-    "{0}:{1:D2}" -f $m, $s
-}
-
-function Show-ProgressBar {
-    <#
-    .SYNOPSIS
-    Create an ASCII progress bar for track playback
-    .PARAMETER Current
-    Current position in milliseconds
-    .PARAMETER Total
-    Total duration in milliseconds
-    .PARAMETER Width
-    Width of the progress bar in characters (default: 30)
-    #>
-    param(
-        [int]$Current,
-        [int]$Total,
-        [int]$Width = 30
-    )
-    
-    if ($Total -le 0) {
-        return "[$("░" * $Width)] 0%"
-    }
-    
-    $percentage = [Math]::Round(($Current / $Total) * 100)
-    $filled = [Math]::Round(($Current / $Total) * $Width)
-    $empty = $Width - $filled
-    
-    # Ensure we don't exceed bounds
-    if ($filled -gt $Width) { $filled = $Width; $empty = 0 }
-    if ($filled -lt 0) { $filled = 0; $empty = $Width }
-    
-    $bar = "█" * $filled + "░" * $empty
-    return "[$bar] $percentage%"
-}
-
-function Get-StatusColor {
-    <#
-    .SYNOPSIS
-    Get color for playback status based on configuration
-    .PARAMETER IsPlaying
-    Whether the track is currently playing
-    #>
-    param([bool]$IsPlaying)
-    
-    $config = Get-SpotifyConfig
-    return if ($IsPlaying) { $config.Colors.Playing } else { $config.Colors.Paused }
-}
-
-function Get-TrackColor {
-    <#
-    .SYNOPSIS
-    Get color for track name based on configuration
-    #>
-    $config = Get-SpotifyConfig
-    return $config.Colors.Track
-}
-
-function Get-ArtistColor {
-    <#
-    .SYNOPSIS
-    Get color for artist name based on configuration
-    #>
-    $config = Get-SpotifyConfig
-    return $config.Colors.Artist
-}
-
-function Get-AlbumColor {
-    <#
-    .SYNOPSIS
-    Get color for album name based on configuration
-    #>
-    $config = Get-SpotifyConfig
-    return $config.Colors.Album
-}
-
-function Get-ProgressColor {
-    <#
-    .SYNOPSIS
-    Get color for progress information based on configuration
-    #>
-    $config = Get-SpotifyConfig
-    return $config.Colors.Progress
-}
-
-function Show-CompactTrack {
-    <#
-    .SYNOPSIS
-    Display current track in compact single-line format
-    .PARAMETER TrackData
-    Track data from Spotify API response
-    #>
-    param($TrackData)
-    
-    if (-not $TrackData -or -not $TrackData.item) {
-        Write-Host "No track playing" -ForegroundColor Yellow
-        return
-    }
-    
-    $isPlaying = $TrackData.is_playing
-    $progress = $TrackData.progress_ms
-    $item = $TrackData.item
-    $device = $TrackData.device
-    
-    $name = $item.name
-    $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
-    $dur = $item.duration_ms
-    
-    # Create compact progress indicator (shorter bar)
-    $progressBar = Show-ProgressBar -Current $progress -Total $dur -Width 15
-    $timeInfo = "{0}/{1}" -f (ConvertTo-TimeString $progress), (ConvertTo-TimeString $dur)
-    $playIcon = if ($isPlaying) { "▶️" } else { "⏸️" }
-    
-    # Device info (shortened)
-    $deviceInfo = if ($device) {
-        $deviceIcon = switch ($device.type.ToLower()) {
-            "computer" { "💻" }
-            "smartphone" { "📱" }
-            "speaker" { "🔊" }
-            "tv" { "📺" }
-            default { "🎵" }
-        }
-        " on $deviceIcon"
-    } else { "" }
-    
-    # Truncate long names for compact display
-    $maxNameLength = 25
-    $maxArtistLength = 20
-    
-    $displayName = if ($name.Length -gt $maxNameLength) { 
-        $name.Substring(0, $maxNameLength - 3) + "..." 
-    } else { 
-        $name 
-    }
-    
-    $displayArtists = if ($artists.Length -gt $maxArtistLength) { 
-        $artists.Substring(0, $maxArtistLength - 3) + "..." 
-    } else { 
-        $artists 
-    }
-    
-    # Use color coding for compact display
-    $trackColor = Get-TrackColor
-    $artistColor = Get-ArtistColor
-    $progressColor = Get-ProgressColor
-    
-    # Single line format: [Icon] Track - Artist | [Progress] Time | Device
-    Write-Host "$playIcon " -NoNewline -ForegroundColor (Get-StatusColor -IsPlaying $isPlaying)
-    Write-Host "$displayName" -NoNewline -ForegroundColor $trackColor
-    Write-Host " - " -NoNewline -ForegroundColor Gray
-    Write-Host "$displayArtists" -NoNewline -ForegroundColor $artistColor
-    Write-Host " | " -NoNewline -ForegroundColor Gray
-    Write-Host "$progressBar" -NoNewline -ForegroundColor $progressColor
-    Write-Host " $timeInfo" -NoNewline -ForegroundColor $progressColor
-    Write-Host "$deviceInfo" -ForegroundColor Gray
-}
-
-function Initialize-ConfigStore {
-    if (-not (Test-Path $script:AppDataDir)) { 
-        New-Item -ItemType Directory -Path $script:AppDataDir | Out-Null 
-    }
-    if (-not (Test-Path $script:ConfigFile)) { 
-        $script:DefaultConfig | ConvertTo-Json -Depth 5 | Set-Content -Path $script:ConfigFile -Encoding UTF8
-    }
-}
-
-function Get-SpotifyConfig {
-    <#
-    .SYNOPSIS
-    Get the current Spotify CLI configuration
-    .DESCRIPTION
-    Loads configuration from file, merging with defaults for any missing values
-    #>
-    Initialize-ConfigStore
-    try {
-        $json = Get-Content -Path $script:ConfigFile -Raw -ErrorAction Stop
-        if ([string]::IsNullOrWhiteSpace($json)) { 
-            return $script:DefaultConfig.Clone()
-        }
-        $config = ($json | ConvertFrom-Json)
-        
-        # Convert PSCustomObject to hashtable and merge with defaults
-        $result = $script:DefaultConfig.Clone()
-        
-        # Merge top-level properties
-        $config.PSObject.Properties | ForEach-Object {
-            if ($_.Name -eq "Colors" -and $_.Value) {
-                # Handle Colors object specially
-                $result.Colors = @{}
-                $_.Value.PSObject.Properties | ForEach-Object {
-                    $result.Colors[$_.Name] = $_.Value
-                }
-                # Ensure all default colors exist
-                $script:DefaultConfig.Colors.GetEnumerator() | ForEach-Object {
-                    if (-not $result.Colors.ContainsKey($_.Key)) {
-                        $result.Colors[$_.Key] = $_.Value
-                    }
-                }
-            } else {
-                $result[$_.Name] = $_.Value
-            }
-        }
-        
-        return $result
-    } catch { 
-        Write-Warning "Could not load configuration, using defaults: $($_.Exception.Message)"
-        return $script:DefaultConfig.Clone()
-    }
-}
-
-function Set-SpotifyConfig {
-    <#
-    .SYNOPSIS
-    Save the Spotify CLI configuration
-    .PARAMETER Config
-    Configuration hashtable to save
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$Config
-    )
-    
-    Initialize-ConfigStore
-    try {
-        ($Config | ConvertTo-Json -Depth 5) | Set-Content -Path $script:ConfigFile -Encoding UTF8
-        return $true
-    } catch {
-        Write-Error "Could not save configuration: $($_.Exception.Message)"
-        return $false
-    }
-}
-
-function Test-SpotifyConfigValue {
-    <#
-    .SYNOPSIS
-    Validate a configuration value
-    .PARAMETER Key
-    Configuration key to validate
-    .PARAMETER Value
-    Value to validate
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [string]$Key,
-        [Parameter(Mandatory)]
-        $Value
-    )
-    
-    switch ($Key) {
-        "PreferredDevice" { 
-            return ($Value -eq $null -or $Value -is [string])
-        }
-        "CompactMode" { 
-            return ($Value -is [bool])
-        }
-        "NotificationsEnabled" { 
-            return ($Value -is [bool])
-        }
-        "AutoRefreshInterval" { 
-            return ($Value -is [int] -and $Value -ge 0)
-        }
-        "LoggingEnabled" { 
-            return ($Value -is [bool])
-        }
-        "HistoryEnabled" { 
-            return ($Value -is [bool])
-        }
-        "MaxHistoryEntries" { 
-            return ($Value -is [int] -and $Value -gt 0)
-        }
-        "LogLevel" {
-            return ($Value -in @("Debug", "Info", "Warning", "Error"))
-        }
-        "MaxLogSizeMB" {
-            return ($Value -is [int] -and $Value -gt 0)
-        }
-        "LogRetentionDays" {
-            return ($Value -is [int] -and $Value -gt 0)
-        }
-        "Colors" {
-            if ($Value -isnot [hashtable]) { return $false }
-            $validColors = @("Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow", "Gray", "DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White")
-            foreach ($colorValue in $Value.Values) {
-                if ($colorValue -notin $validColors) { return $false }
-            }
-            return $true
-        }
-        default { 
-            return $false 
-        }
-    }
-}
-
-function Handle-SpotifyError {
-    <#
-    .SYNOPSIS
-    Centralized error handling for Spotify API errors
-    .PARAMETER ErrorRecord
-    The error record from the API call
-    .PARAMETER Context
-    Context information about what operation failed
-    .PARAMETER ShowSuggestions
-    Whether to show actionable suggestions
-    #>
-    param(
-        [System.Management.Automation.ErrorRecord]$ErrorRecord,
-        [string]$Context = "API operation",
-        [bool]$ShowSuggestions = $true
-    )
-    
-    $statusCode = $null
-    $errorMessage = $ErrorRecord.Exception.Message
-    
-    # Extract HTTP status code if available
-    if ($ErrorRecord.Exception.Response) {
-        $statusCode = [int]$ErrorRecord.Exception.Response.StatusCode
-    }
-    
-    # Log the error
-    Write-ErrorLog -Message "Error during $Context - Status: $statusCode, Message: $errorMessage" -Component "ErrorHandler" -Exception $ErrorRecord.Exception
-    
-    switch ($statusCode) {
-        401 {
-            Write-Host "🔐 Authentication Error" -ForegroundColor Red
-            Write-Host "Your Spotify session has expired." -ForegroundColor Yellow
-            if ($ShowSuggestions) {
-                Write-Host ""
-                Write-Host "SOLUTION:" -ForegroundColor Green
-                Write-Host "• The CLI will automatically re-authenticate you" -ForegroundColor White
-                Write-Host "• If problems persist, restart the CLI" -ForegroundColor White
-            }
-            # Trigger re-authentication
-            try {
-                [void](Get-SpotifyAccessToken)
-                Write-Host "✅ Re-authentication completed. Please try your command again." -ForegroundColor Green
-            } catch {
-                Write-Host "❌ Re-authentication failed. Please restart the CLI." -ForegroundColor Red
-            }
-        }
-        403 {
-            Write-Host "🚫 Permission Error" -ForegroundColor Red
-            Write-Host "This operation requires Spotify Premium." -ForegroundColor Yellow
-            if ($ShowSuggestions) {
-                Write-Host ""
-                Write-Host "AFFECTED FEATURES:" -ForegroundColor Yellow
-                Write-Host "• Seek, volume, shuffle, repeat controls" -ForegroundColor White
-                Write-Host "• Device transfer and queue management" -ForegroundColor White
-                Write-Host "• Playing specific tracks/albums/playlists" -ForegroundColor White
-                Write-Host ""
-                Write-Host "AVAILABLE WITH FREE:" -ForegroundColor Green
-                Write-Host "• View current track (/spotify)" -ForegroundColor White
-                Write-Host "• Browse playlists and liked songs" -ForegroundColor White
-                Write-Host "• Search for music" -ForegroundColor White
-            }
-        }
-        404 {
-            if ($Context -like "*device*") {
-                Write-Host "📱 No Active Device" -ForegroundColor Red
-                Write-Host "No Spotify device is currently active." -ForegroundColor Yellow
-                if ($ShowSuggestions) {
-                    Write-Host ""
-                    Write-Host "SOLUTION:" -ForegroundColor Green
-                    Write-Host "1. Open Spotify on any device (phone, computer, speaker)" -ForegroundColor White
-                    Write-Host "2. Start playing any song" -ForegroundColor White
-                    Write-Host "3. Use /devices to see available devices" -ForegroundColor White
-                    Write-Host "4. Use /transfer <device_id> if needed" -ForegroundColor White
-                }
-            } elseif ($Context -like "*track*" -or $Context -like "*content*") {
-                Write-Host "🎵 Content Not Found" -ForegroundColor Red
-                Write-Host "The requested track, album, or playlist was not found." -ForegroundColor Yellow
-                if ($ShowSuggestions) {
-                    Write-Host ""
-                    Write-Host "POSSIBLE CAUSES:" -ForegroundColor Yellow
-                    Write-Host "• Invalid or expired Spotify URI" -ForegroundColor White
-                    Write-Host "• Content removed from Spotify" -ForegroundColor White
-                    Write-Host "• Content not available in your region" -ForegroundColor White
-                    Write-Host ""
-                    Write-Host "TIP: Use /search to find current URIs" -ForegroundColor Green
-                }
-            } else {
-                Write-Host "❓ Not Found" -ForegroundColor Red
-                Write-Host "The requested resource was not found." -ForegroundColor Yellow
-            }
-        }
-        429 {
-            Write-Host "⏳ Rate Limit Exceeded" -ForegroundColor Red
-            Write-Host "Too many requests sent to Spotify. Waiting before retry..." -ForegroundColor Yellow
-            if ($ShowSuggestions) {
-                Write-Host ""
-                Write-Host "AUTOMATIC RETRY:" -ForegroundColor Green
-                Write-Host "• The CLI will wait and retry automatically" -ForegroundColor White
-                Write-Host "• Please wait a moment before trying again" -ForegroundColor White
-                Write-Host "• Consider reducing the frequency of commands" -ForegroundColor White
-            }
-            Start-Sleep -Seconds 5
-        }
-        500 {
-            Write-Host "🔧 Spotify Server Error" -ForegroundColor Red
-            Write-Host "Spotify's servers are experiencing issues." -ForegroundColor Yellow
-            if ($ShowSuggestions) {
-                Write-Host ""
-                Write-Host "SOLUTION:" -ForegroundColor Green
-                Write-Host "• Wait a few minutes and try again" -ForegroundColor White
-                Write-Host "• Check Spotify's status page if issues persist" -ForegroundColor White
-            }
-        }
-        502 -or 503 -or 504 {
-            Write-Host "🌐 Service Unavailable" -ForegroundColor Red
-            Write-Host "Spotify's API is temporarily unavailable." -ForegroundColor Yellow
-            if ($ShowSuggestions) {
-                Write-Host ""
-                Write-Host "SOLUTION:" -ForegroundColor Green
-                Write-Host "• This is usually temporary - try again in a few minutes" -ForegroundColor White
-                Write-Host "• Check your internet connection" -ForegroundColor White
-            }
-        }
-        default {
-            if ($errorMessage -like "*network*" -or $errorMessage -like "*connection*" -or $errorMessage -like "*timeout*") {
-                Write-Host "🌐 Network Error" -ForegroundColor Red
-                Write-Host "Unable to connect to Spotify's servers." -ForegroundColor Yellow
-                if ($ShowSuggestions) {
-                    Write-Host ""
-                    Write-Host "TROUBLESHOOTING:" -ForegroundColor Green
-                    Write-Host "• Check your internet connection" -ForegroundColor White
-                    Write-Host "• Try again in a few moments" -ForegroundColor White
-                    Write-Host "• Restart the CLI if problems persist" -ForegroundColor White
-                }
-            } else {
-                Write-Host "❌ Unexpected Error" -ForegroundColor Red
-                Write-Host "An unexpected error occurred during $Context." -ForegroundColor Yellow
-                if ($ShowSuggestions) {
-                    Write-Host ""
-                    Write-Host "ERROR DETAILS:" -ForegroundColor Yellow
-                    Write-Host "$errorMessage" -ForegroundColor Gray
-                    Write-Host ""
-                    Write-Host "TROUBLESHOOTING:" -ForegroundColor Green
-                    Write-Host "• Try the command again" -ForegroundColor White
-                    Write-Host "• Use /help <command> for usage information" -ForegroundColor White
-                    Write-Host "• Restart the CLI if problems persist" -ForegroundColor White
-                }
-            }
-        }
-    }
-}
-
-function Test-SpotifyConnection {
-    <#
-    .SYNOPSIS
-    Test connection to Spotify API and provide helpful feedback
-    .DESCRIPTION
-    Performs a simple API call to test connectivity and authentication
-    #>
-    try {
-        $response = Invoke-SpotifyApi -Method GET -Path "/me" -ErrorAction Stop
-        return $true
-    } catch {
-        Handle-SpotifyError -ErrorRecord $_ -Context "connection test" -ShowSuggestions $true
-        return $false
-    }
-}
-
-function Test-NetworkConnectivity {
-    <#
-    .SYNOPSIS
-    Test basic network connectivity to Spotify services
-    .DESCRIPTION
-    Performs basic network tests to help diagnose connectivity issues
-    #>
-    try {
-        # Test DNS resolution
-        $null = [System.Net.Dns]::GetHostAddresses("api.spotify.com")
-        
-        # Test basic HTTP connectivity
-        $webClient = New-Object System.Net.WebClient
-        $webClient.Timeout = 5000  # 5 second timeout
-        $null = $webClient.DownloadString("https://api.spotify.com")
-        $webClient.Dispose()
-        
-        return $true
-    } catch {
-        Write-Host "🌐 Network Connectivity Issue" -ForegroundColor Red
-        Write-Host "Cannot reach Spotify's servers." -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "TROUBLESHOOTING:" -ForegroundColor Green
-        Write-Host "• Check your internet connection" -ForegroundColor White
-        Write-Host "• Verify DNS settings" -ForegroundColor White
-        Write-Host "• Check firewall and proxy settings" -ForegroundColor White
-        Write-Host "• Try accessing spotify.com in your browser" -ForegroundColor White
-        return $false
-    }
-}
-
-function Show-UnknownCommand {
-    <#
-    .SYNOPSIS
-    Display unknown command message with suggestions
-    .PARAMETER Command
-    The unknown command that was entered
-    #>
-    param([string]$Command)
-    
-    $availableCommands = @(
-        "spotify", "next", "pause", "play", "previous", "seek", "volume", "shuffle", "repeat",
-        "devices", "transfer", "search", "queue", "playlists", "liked", "recent", "save", "unsave",
-        "config", "help", "history", "notifications", "auto-refresh"
-    )
-    
-    Write-Host "❓ Unknown Command: $Command" -ForegroundColor Red
-    
-    # Enhanced command suggestion using Levenshtein distance approximation
-    $inputCmd = $Command.TrimStart('/').ToLower()
-    $suggestions = @()
-    
-    # First, try exact substring matches
-    $exactMatches = $availableCommands | Where-Object { 
-        $_ -like "*$inputCmd*" -or $inputCmd -like "*$_*" 
-    } | Select-Object -First 3
-    
-    if ($exactMatches) {
-        $suggestions += $exactMatches
-    } else {
-        # If no exact matches, try fuzzy matching based on first letters and length
-        $fuzzyMatches = $availableCommands | Where-Object {
-            $cmd = $_
-            # Check if commands start with same letter
-            if ($cmd[0] -eq $inputCmd[0]) { return $true }
-            # Check if command length is similar (within 2 characters)
-            if ([Math]::Abs($cmd.Length - $inputCmd.Length) -le 2) {
-                # Count matching characters
-                $matches = 0
-                $minLength = [Math]::Min($cmd.Length, $inputCmd.Length)
-                for ($i = 0; $i -lt $minLength; $i++) {
-                    if ($cmd[$i] -eq $inputCmd[$i]) { $matches++ }
-                }
-                return ($matches / $minLength) -gt 0.4  # 40% character match
-            }
-            return $false
-        } | Select-Object -First 3
-        
-        $suggestions += $fuzzyMatches
-    }
-    
-    if ($suggestions) {
-        Write-Host ""
-        Write-Host "💡 Did you mean:" -ForegroundColor Yellow
-        $suggestions | ForEach-Object {
-            Write-Host "  /$_" -ForegroundColor Green
-        }
-    } else {
-        Write-Host ""
-        Write-Host "💡 HELP:" -ForegroundColor Yellow
-        Write-Host "• Use /help to see all available commands" -ForegroundColor White
-        Write-Host "• Use /help <command> for detailed command help" -ForegroundColor White
-    }
-    
-    Write-Host ""
-    Write-Host "🔍 QUICK COMMANDS:" -ForegroundColor Cyan
-    Write-Host "  /spotify  - Show current track" -ForegroundColor White
-    Write-Host "  /help     - Show all commands" -ForegroundColor White
-    Write-Host "  /devices  - List Spotify devices" -ForegroundColor White
-}
-
-function Invoke-HelpCommand {
-    <#
-    .SYNOPSIS
-    Display help information for commands
-    .PARAMETER Arguments
-    Optional command name to get detailed help for
-    #>
-    param([string]$Arguments)
-    
-    if ([string]::IsNullOrWhiteSpace($Arguments)) {
-        # Show general help overview
-        Write-Host "Spotify CLI - Enhanced PowerShell Interface" -ForegroundColor Cyan
-        Write-Host "===========================================" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "PLAYBACK CONTROLS:" -ForegroundColor Yellow
-        Write-Host "  spotify [compact]  - Show current track (add 'compact' for single-line)" -ForegroundColor White
-        Write-Host "  play               - Resume playback" -ForegroundColor White
-        Write-Host "  pause              - Pause playback" -ForegroundColor White
-        Write-Host "  next               - Skip to next track" -ForegroundColor White
-        Write-Host "  previous           - Go to previous track" -ForegroundColor White
-        Write-Host ""
-        Write-Host "ENHANCED CONTROLS:" -ForegroundColor Yellow
-        Write-Host "  seek <seconds>     - Seek forward/backward (use negative for backward)" -ForegroundColor White
-        Write-Host "  volume <0-100>     - Set playback volume" -ForegroundColor White
-        Write-Host "  shuffle <on|off>   - Toggle shuffle mode" -ForegroundColor White
-        Write-Host "  repeat <track|context|off> - Set repeat mode" -ForegroundColor White
-        Write-Host ""
-        Write-Host "DEVICE MANAGEMENT:" -ForegroundColor Yellow
-        Write-Host "  devices            - List available Spotify Connect devices" -ForegroundColor White
-        Write-Host "  transfer <id>      - Transfer playback to device" -ForegroundColor White
-        Write-Host ""
-        Write-Host "SEARCH & PLAYBACK:" -ForegroundColor Yellow
-        Write-Host "  search <query>     - Search for tracks, artists, albums" -ForegroundColor White
-        Write-Host "  queue <uri>        - Add track to playback queue" -ForegroundColor White
-        Write-Host "  play track <uri>   - Play specific track" -ForegroundColor White
-        Write-Host "  play album <uri>   - Play specific album" -ForegroundColor White
-        Write-Host "  play playlist <uri> - Play specific playlist" -ForegroundColor White
-        Write-Host ""
-        Write-Host "LIBRARY MANAGEMENT:" -ForegroundColor Yellow
-        Write-Host "  playlists          - Show your playlists" -ForegroundColor White
-        Write-Host "  liked              - Show your liked songs" -ForegroundColor White
-        Write-Host "  recent             - Show recently played tracks" -ForegroundColor White
-        Write-Host "  save               - Add current track to liked songs" -ForegroundColor White
-        Write-Host "  unsave             - Remove current track from liked songs" -ForegroundColor White
-        Write-Host ""
-        Write-Host "SYSTEM COMMANDS:" -ForegroundColor Yellow
-        Write-Host "  config [key] [value] - View/modify configuration" -ForegroundColor White
-        Write-Host "  history            - Show playback history" -ForegroundColor White
-        Write-Host "  notifications <on|off> - Toggle notifications" -ForegroundColor White
-        Write-Host "  auto-refresh <seconds> - Auto-refresh display" -ForegroundColor White
-        Write-Host "  help [command]     - Show help (add command for detailed help)" -ForegroundColor White
-        Write-Host ""
-        Write-Host "For detailed help on a specific command, use: help <command>" -ForegroundColor Gray
-        Write-Host "Example: help seek" -ForegroundColor Gray
-        return
-    }
-    
-    # Show detailed help for specific command
-    $command = $Arguments.Trim().ToLower().TrimStart('/')
-    
-    switch ($command) {
-        "spotify" {
-            Write-Host "COMMAND: spotify [compact]" -ForegroundColor Cyan
-            Write-Host "=========================" -ForegroundColor Cyan
-            Write-Host "Shows information about the currently playing track." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  spotify          - Show full track information with progress bar" -ForegroundColor White
-            Write-Host "  spotify compact  - Show compact single-line format" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  spotify" -ForegroundColor Gray
-            Write-Host "  spotify compact" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "NOTE: Compact mode can also be enabled globally via config CompactMode true" -ForegroundColor Gray
-        }
-        "seek" {
-            Write-Host "COMMAND: seek <seconds>" -ForegroundColor Cyan
-            Write-Host "======================" -ForegroundColor Cyan
-            Write-Host "Seeks forward or backward in the current track." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  seek <seconds>   - Positive numbers seek forward, negative backward" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  seek 30          - Skip forward 30 seconds" -ForegroundColor Gray
-            Write-Host "  seek -15         - Skip backward 15 seconds" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
-            Write-Host "  - Active device with current track playing" -ForegroundColor Gray
-        }
-        "volume" {
-            Write-Host "COMMAND: volume <0-100>" -ForegroundColor Cyan
-            Write-Host "======================" -ForegroundColor Cyan
-            Write-Host "Sets the playback volume on the active device." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  volume <level>   - Volume level from 0 (mute) to 100 (maximum)" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  volume 50        - Set volume to 50%" -ForegroundColor Gray
-            Write-Host "  volume 0         - Mute playback" -ForegroundColor Gray
-            Write-Host "  volume 100       - Set to maximum volume" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
-            Write-Host "  - Active device that supports volume control" -ForegroundColor Gray
-        }
-        "shuffle" {
-            Write-Host "COMMAND: shuffle <on|off>" -ForegroundColor Cyan
-            Write-Host "========================" -ForegroundColor Cyan
-            Write-Host "Enables or disables shuffle mode for the current playback context." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  shuffle on       - Enable shuffle mode" -ForegroundColor White
-            Write-Host "  shuffle off      - Disable shuffle mode" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  shuffle on" -ForegroundColor Gray
-            Write-Host "  shuffle off" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
-            Write-Host "  - Active playback context (playlist, album, etc.)" -ForegroundColor Gray
-        }
-        "repeat" {
-            Write-Host "COMMAND: repeat <track|context|off>" -ForegroundColor Cyan
-            Write-Host "===================================" -ForegroundColor Cyan
-            Write-Host "Sets the repeat mode for playback." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  repeat track     - Repeat current track" -ForegroundColor White
-            Write-Host "  repeat context   - Repeat current playlist/album" -ForegroundColor White
-            Write-Host "  repeat off       - Disable repeat" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  repeat track" -ForegroundColor Gray
-            Write-Host "  repeat context" -ForegroundColor Gray
-            Write-Host "  repeat off" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
-            Write-Host "  - Active playback context" -ForegroundColor Gray
-        }
-        "devices" {
-            Write-Host "COMMAND: devices" -ForegroundColor Cyan
-            Write-Host "================" -ForegroundColor Cyan
-            Write-Host "Lists all available Spotify Connect devices." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  devices          - Show all available devices with status" -ForegroundColor White
-            Write-Host ""
-            Write-Host "DISPLAYED INFO:" -ForegroundColor Yellow
-            Write-Host "  - Device name and type" -ForegroundColor Gray
-            Write-Host "  - Active status (which device is currently playing)" -ForegroundColor Gray
-            Write-Host "  - Volume level (if available)" -ForegroundColor Gray
-            Write-Host "  - Device ID (for use with transfer command)" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "TIP: Use device IDs with transfer command to switch playback" -ForegroundColor Gray
-        }
-        "transfer" {
-            Write-Host "COMMAND: transfer <device_id>" -ForegroundColor Cyan
-            Write-Host "=============================" -ForegroundColor Cyan
-            Write-Host "Transfers playback to a different Spotify Connect device." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  transfer <id>    - Transfer to device with specified ID" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  transfer abc123  - Transfer to device with ID 'abc123'" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "HOW TO GET DEVICE ID:" -ForegroundColor Yellow
-            Write-Host "  1. Run devices to see available devices" -ForegroundColor Gray
-            Write-Host "  2. Copy the device ID from the list" -ForegroundColor Gray
-            Write-Host "  3. Use it with transfer command" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Target device must be active and available" -ForegroundColor Gray
-            Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
-        }
-        "search" {
-            Write-Host "COMMAND: search <query>" -ForegroundColor Cyan
-            Write-Host "======================" -ForegroundColor Cyan
-            Write-Host "Searches for tracks, artists, and albums on Spotify." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  search <query>   - Search for music content" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  search bohemian rhapsody" -ForegroundColor Gray
-            Write-Host "  search artist:queen" -ForegroundColor Gray
-            Write-Host "  search album:\"a night at the opera\"" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "SEARCH TIPS:" -ForegroundColor Yellow
-            Write-Host "  - Use quotes for exact phrases" -ForegroundColor Gray
-            Write-Host "  - Use 'artist:', 'album:', 'track:' prefixes for specific searches" -ForegroundColor Gray
-            Write-Host "  - Results show URIs that can be used with play and queue commands" -ForegroundColor Gray
-        }
-        "queue" {
-            Write-Host "COMMAND: queue <track_uri>" -ForegroundColor Cyan
-            Write-Host "==========================" -ForegroundColor Cyan
-            Write-Host "Adds a track to the playback queue." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  queue <uri>      - Add track to queue using Spotify URI" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  queue spotify:track:4iV5W9uYEdYUVa79Axb7Rh" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "HOW TO GET TRACK URI:" -ForegroundColor Yellow
-            Write-Host "  1. Use search to find tracks" -ForegroundColor Gray
-            Write-Host "  2. Copy the URI from search results" -ForegroundColor Gray
-            Write-Host "  3. Use it with queue command" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
-            Write-Host "  - Active device with playback" -ForegroundColor Gray
-        }
-        "play" {
-            Write-Host "COMMAND: play [type] [uri]" -ForegroundColor Cyan
-            Write-Host "==========================" -ForegroundColor Cyan
-            Write-Host "Resumes playback or plays specific content." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  play                  - Resume current playback" -ForegroundColor White
-            Write-Host "  play track <uri>      - Play specific track" -ForegroundColor White
-            Write-Host "  play album <uri>      - Play specific album" -ForegroundColor White
-            Write-Host "  play playlist <uri>   - Play specific playlist" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  play" -ForegroundColor Gray
-            Write-Host "  play track spotify:track:4iV5W9uYEdYUVa79Axb7Rh" -ForegroundColor Gray
-            Write-Host "  play album spotify:album:4aawyAB9vmqN3uQ7FjRGTy" -ForegroundColor Gray
-            Write-Host "  play playlist spotify:playlist:37i9dQZF1DXcBWIGoYBM5M" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "HOW TO GET URIs:" -ForegroundColor Yellow
-            Write-Host "  - Use search for tracks and albums" -ForegroundColor Gray
-            Write-Host "  - Use playlists to see your playlists with URIs" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Spotify Premium subscription (for specific content)" -ForegroundColor Gray
-            Write-Host "  - Active device" -ForegroundColor Gray
-        }
-        "playlists" {
-            Write-Host "COMMAND: playlists" -ForegroundColor Cyan
-            Write-Host "==================" -ForegroundColor Cyan
-            Write-Host "Shows your Spotify playlists." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  playlists        - List all your playlists" -ForegroundColor White
-            Write-Host ""
-            Write-Host "DISPLAYED INFO:" -ForegroundColor Yellow
-            Write-Host "  - Playlist name and description" -ForegroundColor Gray
-            Write-Host "  - Number of tracks" -ForegroundColor Gray
-            Write-Host "  - Playlist URI (for use with play playlist command)" -ForegroundColor Gray
-            Write-Host "  - Public/private status" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "TIP: Copy playlist URIs to use with play playlist <uri>" -ForegroundColor Gray
-        }
-        "liked" {
-            Write-Host "COMMAND: liked" -ForegroundColor Cyan
-            Write-Host "==============" -ForegroundColor Cyan
-            Write-Host "Shows your liked/saved songs." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  liked            - Show your liked songs" -ForegroundColor White
-            Write-Host ""
-            Write-Host "DISPLAYED INFO:" -ForegroundColor Yellow
-            Write-Host "  - Track name and artist" -ForegroundColor Gray
-            Write-Host "  - Album name" -ForegroundColor Gray
-            Write-Host "  - Date added to liked songs" -ForegroundColor Gray
-            Write-Host "  - Track URI" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "RELATED COMMANDS:" -ForegroundColor Yellow
-            Write-Host "  save   - Add current track to liked songs" -ForegroundColor Gray
-            Write-Host "  unsave - Remove current track from liked songs" -ForegroundColor Gray
-        }
-        "recent" {
-            Write-Host "COMMAND: recent" -ForegroundColor Cyan
-            Write-Host "===============" -ForegroundColor Cyan
-            Write-Host "Shows recently played tracks from Spotify." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  recent           - Show recently played tracks" -ForegroundColor White
-            Write-Host ""
-            Write-Host "DISPLAYED INFO:" -ForegroundColor Yellow
-            Write-Host "  - Track name and artist" -ForegroundColor Gray
-            Write-Host "  - Album name" -ForegroundColor Gray
-            Write-Host "  - When it was played" -ForegroundColor Gray
-            Write-Host "  - Track URI" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "NOTE: This shows Spotify's recent tracks, not local CLI history" -ForegroundColor Gray
-            Write-Host "For local history, use history command" -ForegroundColor Gray
-        }
-        "save" {
-            Write-Host "COMMAND: save" -ForegroundColor Cyan
-            Write-Host "=============" -ForegroundColor Cyan
-            Write-Host "Adds the currently playing track to your liked songs." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  save             - Save current track to liked songs" -ForegroundColor White
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - A track must be currently playing" -ForegroundColor Gray
-            Write-Host "  - Track must not already be in liked songs" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "RELATED COMMANDS:" -ForegroundColor Yellow
-            Write-Host "  unsave - Remove current track from liked songs" -ForegroundColor Gray
-            Write-Host "  liked  - View all your liked songs" -ForegroundColor Gray
-        }
-        "unsave" {
-            Write-Host "COMMAND: unsave" -ForegroundColor Cyan
-            Write-Host "===============" -ForegroundColor Cyan
-            Write-Host "Removes the currently playing track from your liked songs." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  unsave           - Remove current track from liked songs" -ForegroundColor White
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - A track must be currently playing" -ForegroundColor Gray
-            Write-Host "  - Track must be in your liked songs" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "RELATED COMMANDS:" -ForegroundColor Yellow
-            Write-Host "  save  - Add current track to liked songs" -ForegroundColor Gray
-            Write-Host "  liked - View all your liked songs" -ForegroundColor Gray
-        }
-        "config" {
-            Write-Host "COMMAND: config [key] [value]" -ForegroundColor Cyan
-            Write-Host "=============================" -ForegroundColor Cyan
-            Write-Host "View or modify CLI configuration settings." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  config           - Show current configuration" -ForegroundColor White
-            Write-Host "  config list      - Show available configuration keys" -ForegroundColor White
-            Write-Host "  config reset     - Reset to default configuration" -ForegroundColor White
-            Write-Host "  config <key> <value> - Set configuration value" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  config CompactMode true" -ForegroundColor Gray
-            Write-Host "  config Colors.Playing Blue" -ForegroundColor Gray
-            Write-Host "  config AutoRefreshInterval 5" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "MAIN SETTINGS:" -ForegroundColor Yellow
-            Write-Host "  CompactMode, NotificationsEnabled, LoggingEnabled" -ForegroundColor Gray
-            Write-Host "  AutoRefreshInterval, HistoryEnabled, MaxHistoryEntries" -ForegroundColor Gray
-            Write-Host "  Colors.* (Playing, Paused, Track, Artist, Album, Progress)" -ForegroundColor Gray
-        }
-        "history" {
-            Write-Host "COMMAND: history" -ForegroundColor Cyan
-            Write-Host "================" -ForegroundColor Cyan
-            Write-Host "Shows local playback history tracked by the CLI." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  history          - Show recent playback history" -ForegroundColor White
-            Write-Host ""
-            Write-Host "DISPLAYED INFO:" -ForegroundColor Yellow
-            Write-Host "  - Track name and artist" -ForegroundColor Gray
-            Write-Host "  - Album name" -ForegroundColor Gray
-            Write-Host "  - When it was played (local time)" -ForegroundColor Gray
-            Write-Host "  - Duration" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "CONFIGURATION:" -ForegroundColor Yellow
-            Write-Host "  - Enable/disable: config HistoryEnabled true/false" -ForegroundColor Gray
-            Write-Host "  - Max entries: config MaxHistoryEntries <number>" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "NOTE: This is different from recent (Spotify's recent tracks)" -ForegroundColor Gray
-        }
-        "notifications" {
-            Write-Host "COMMAND: notifications <on|off>" -ForegroundColor Cyan
-            Write-Host "===============================" -ForegroundColor Cyan
-            Write-Host "Enable or disable Windows toast notifications for track changes." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  notifications on  - Enable notifications" -ForegroundColor White
-            Write-Host "  notifications off - Disable notifications" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  notifications on" -ForegroundColor Gray
-            Write-Host "  notifications off" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
-            Write-Host "  - Windows 10/11 with toast notification support" -ForegroundColor Gray
-            Write-Host "  - Notification permissions for PowerShell" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "NOTE: Can also be configured via config NotificationsEnabled true/false" -ForegroundColor Gray
-        }
-        "auto-refresh" {
-            Write-Host "COMMAND: auto-refresh <seconds>" -ForegroundColor Cyan
-            Write-Host "===============================" -ForegroundColor Cyan
-            Write-Host "Automatically refresh the display at specified intervals." -ForegroundColor White
-            Write-Host ""
-            Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  auto-refresh <seconds> - Set refresh interval (0 to disable)" -ForegroundColor White
-            Write-Host ""
-            Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  auto-refresh 5   - Refresh every 5 seconds" -ForegroundColor Gray
-            Write-Host "  auto-refresh 0   - Disable auto-refresh" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "BEHAVIOR:" -ForegroundColor Yellow
-            Write-Host "  - Shows current track info at specified intervals" -ForegroundColor Gray
-            Write-Host "  - Press any key to interrupt and return to command mode" -ForegroundColor Gray
-            Write-Host "  - Useful for monitoring playback without manual commands" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "NOTE: Can also be configured via config AutoRefreshInterval <seconds>" -ForegroundColor Gray
-        }
-        default {
-            Write-Host "Unknown command: $command" -ForegroundColor Red
-            Write-Host ""
-            Write-Host "Available commands for detailed help:" -ForegroundColor Yellow
-            $availableCommands = @(
-                "spotify", "seek", "volume", "shuffle", "repeat",
-                "devices", "transfer", "search", "queue", "play",
-                "playlists", "liked", "recent", "save", "unsave",
-                "config", "history", "notifications", "auto-refresh"
-            )
-            $availableCommands | ForEach-Object {
-                Write-Host "  help $_" -ForegroundColor Gray
-            }
-            Write-Host ""
-            Write-Host "Use help without arguments to see the general command overview." -ForegroundColor Gray
-        }
-    }
-}
-
-function Invoke-ConfigCommand {
-    <#
-    .SYNOPSIS
-    Handle configuration commands
-    .PARAMETER Arguments
-    Command arguments
-    #>
-    param([string]$Arguments)
-    
-    if ([string]::IsNullOrWhiteSpace($Arguments)) {
-        # Show current configuration
-        $config = Get-SpotifyConfig
-        Write-Host "Current Spotify CLI Configuration:" -ForegroundColor Cyan
-        Write-Host "=================================" -ForegroundColor Cyan
-        Write-Host "PreferredDevice: $($config.PreferredDevice ?? 'None')" -ForegroundColor White
-        Write-Host "CompactMode: $($config.CompactMode)" -ForegroundColor White
-        Write-Host "NotificationsEnabled: $($config.NotificationsEnabled)" -ForegroundColor White
-        Write-Host "AutoRefreshInterval: $($config.AutoRefreshInterval) seconds" -ForegroundColor White
-        Write-Host "LoggingEnabled: $($config.LoggingEnabled)" -ForegroundColor White
-        Write-Host "HistoryEnabled: $($config.HistoryEnabled)" -ForegroundColor White
-        Write-Host "MaxHistoryEntries: $($config.MaxHistoryEntries)" -ForegroundColor White
-        Write-Host "Colors:" -ForegroundColor White
-        $config.Colors.GetEnumerator() | Sort-Object Key | ForEach-Object {
-            Write-Host "  $($_.Key): $($_.Value)" -ForegroundColor White
-        }
-        Write-Host ""
-        Write-Host "Usage: /config <key> <value> - Set a configuration value" -ForegroundColor Gray
-        Write-Host "       /config reset - Reset to default configuration" -ForegroundColor Gray
-        Write-Host "       /config list - Show available configuration keys" -ForegroundColor Gray
-        return
-    }
-    
-    $parts = $Arguments.Trim() -split '\s+', 2
-    $key = $parts[0]
-    $value = if ($parts.Length -gt 1) { $parts[1] } else { $null }
-    
-    if ($key -eq "reset") {
-        if (Set-SpotifyConfig -Config $script:DefaultConfig.Clone()) {
-            Write-Host "Configuration reset to defaults." -ForegroundColor Green
-        }
-        return
-    }
-    
-    if ($key -eq "list") {
-        Write-Host "Available configuration keys:" -ForegroundColor Cyan
-        Write-Host "============================" -ForegroundColor Cyan
-        Write-Host "PreferredDevice - Set preferred Spotify device (string or null)" -ForegroundColor White
-        Write-Host "CompactMode - Enable compact display mode (true/false)" -ForegroundColor White
-        Write-Host "NotificationsEnabled - Enable Windows notifications (true/false)" -ForegroundColor White
-        Write-Host "AutoRefreshInterval - Auto-refresh interval in seconds (number)" -ForegroundColor White
-        Write-Host "LoggingEnabled - Enable debug logging (true/false)" -ForegroundColor White
-        Write-Host "LogLevel - Set logging level (Debug/Info/Warning/Error)" -ForegroundColor White
-        Write-Host "MaxLogSizeMB - Maximum log file size in MB (number)" -ForegroundColor White
-        Write-Host "LogRetentionDays - Days to keep old log files (number)" -ForegroundColor White
-        Write-Host "HistoryEnabled - Enable playback history tracking (true/false)" -ForegroundColor White
-        Write-Host "MaxHistoryEntries - Maximum history entries to keep (number)" -ForegroundColor White
-        Write-Host "Colors.* - Color settings for different elements:" -ForegroundColor White
-        Write-Host "  Colors.Playing, Colors.Paused, Colors.Track, Colors.Artist, Colors.Album, Colors.Progress" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "Valid colors: Black, DarkBlue, DarkGreen, DarkCyan, DarkRed, DarkMagenta, DarkYellow, Gray, DarkGray, Blue, Green, Cyan, Red, Magenta, Yellow, White" -ForegroundColor Gray
-        return
-    }
-    
-    if ($null -eq $value) {
-        Write-Error "Please provide a value for '$key'. Usage: /config <key> <value>"
-        return
-    }
-    
-    $config = Get-SpotifyConfig
-    
-    # Handle special cases for value parsing
-    switch ($key) {
-        "CompactMode" { 
-            $value = $value.ToLower() -in @("true", "1", "yes", "on")
-        }
-        "NotificationsEnabled" { 
-            $value = $value.ToLower() -in @("true", "1", "yes", "on")
-        }
-        "LoggingEnabled" { 
-            $value = $value.ToLower() -in @("true", "1", "yes", "on")
-        }
-        "HistoryEnabled" { 
-            $value = $value.ToLower() -in @("true", "1", "yes", "on")
-        }
-        "AutoRefreshInterval" { 
-            try { $value = [int]$value } catch { Write-Error "AutoRefreshInterval must be a number"; return }
-        }
-        "MaxHistoryEntries" { 
-            try { $value = [int]$value } catch { Write-Error "MaxHistoryEntries must be a number"; return }
-        }
-        "MaxLogSizeMB" {
-            try { $value = [int]$value } catch { Write-Error "MaxLogSizeMB must be a number"; return }
-        }
-        "LogRetentionDays" {
-            try { $value = [int]$value } catch { Write-Error "LogRetentionDays must be a number"; return }
-        }
-        "LogLevel" {
-            if ($value -notin @("Debug", "Info", "Warning", "Error")) {
-                Write-Error "LogLevel must be one of: Debug, Info, Warning, Error"
-                return
-            }
-        }
-        "PreferredDevice" {
-            if ($value.ToLower() -in @("null", "none", "")) { $value = $null }
-        }
-    }
-    
-    # Handle color configuration
-    if ($key -like "Colors.*") {
-        $colorKey = $key.Substring(7) # Remove "Colors." prefix
-        if (-not $config.Colors.ContainsKey($colorKey)) {
-            Write-Error "Unknown color setting '$colorKey'. Available: $($config.Colors.Keys -join ', ')"
-            return
-        }
-        if (-not (Test-SpotifyConfigValue -Key "Colors" -Value @{$colorKey = $value})) {
-            Write-Error "Invalid color value '$value'. Valid colors: Black, DarkBlue, DarkGreen, DarkCyan, DarkRed, DarkMagenta, DarkYellow, Gray, DarkGray, Blue, Green, Cyan, Red, Magenta, Yellow, White"
-            return
-        }
-        $config.Colors[$colorKey] = $value
-    } else {
-        # Validate the configuration value
-        if (-not (Test-SpotifyConfigValue -Key $key -Value $value)) {
-            Write-Error "Invalid value '$value' for configuration key '$key'"
-            return
-        }
-        
-        if (-not $config.ContainsKey($key)) {
-            Write-Error "Unknown configuration key '$key'. Available keys: $($config.Keys -join ', '), Colors.*"
-            return
-        }
-        
-        $config[$key] = $value
-    }
-    
-    if (Set-SpotifyConfig -Config $config) {
-        Write-Host "Configuration updated: $key = $value" -ForegroundColor Green
-    }
-}
-#endregion
-
-#region Globala kommandon
-function spotify {
-    <#
-    .SYNOPSIS
-    Visa vad som spelas just nu på Spotify
-    .PARAMETER CompactMode
-    Display in compact single-line format
-    #>
-    param([switch]$CompactMode)
-    
-    try {
-        $resp = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-    } catch {
-        Handle-SpotifyError -ErrorRecord $_ -Context "getting current track" -ShowSuggestions $true
-        return
-    }
-    if (-not $resp) {
-        Write-Host "Ingen uppspelning hittades."
-        return
-    }
-
-    # Check for track changes and show notifications if enabled
-    Update-TrackNotification -CurrentTrack $resp
-
-    # Check if compact mode is enabled via configuration or parameter
-    $config = Get-SpotifyConfig
-    $useCompactMode = $CompactMode -or $config.CompactMode
-    
-    if ($useCompactMode) {
-        Show-CompactTrack -TrackData $resp
-        return
-    }
-
-    $isPlaying = $resp.is_playing
-    $progress = $resp.progress_ms
-    $item = $resp.item
-    $device = $resp.device
-    if (-not $item) { Write-Host "Ingen låtinfo tillgänglig."; return }
-
-    $name = $item.name
-    $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
-    $album = $item.album.name
-    $dur = $item.duration_ms
-
-    # Use color coding system based on configuration
-    Write-Host "🎵 $name" -ForegroundColor (Get-TrackColor)
-    Write-Host "👤 $artists" -ForegroundColor (Get-ArtistColor)
-    Write-Host "📀 $album" -ForegroundColor (Get-AlbumColor)
-    
-    # Create and display progress bar with time information
-    $progressBar = Show-ProgressBar -Current $progress -Total $dur -Width 30
-    $timeInfo = "{0} / {1}" -f (ConvertTo-TimeString $progress), (ConvertTo-TimeString $dur)
-    $playbackStatus = if ($isPlaying) { "(spelar)" } else { "(paus)" }
-    
-    # Use status-based color for time and progress information
-    $statusColor = Get-StatusColor -IsPlaying $isPlaying
-    $progressColor = Get-ProgressColor
-    
-    Write-Host "⏱ $timeInfo $playbackStatus" -ForegroundColor $statusColor
-    Write-Host "   $progressBar" -ForegroundColor $progressColor
-    
-    # Display device information if available
-    if ($device) {
-        $deviceIcon = switch ($device.type.ToLower()) {
-            "computer" { "💻" }
-            "smartphone" { "📱" }
-            "speaker" { "🔊" }
-            "tv" { "📺" }
-            "automobile" { "🚗" }
-            "cast_video" { "📺" }
-            "cast_audio" { "🔊" }
-            "tablet" { "📱" }
-            "game_console" { "🎮" }
-            default { "🎵" }
-        }
-        
-        $volumeInfo = if ($device.volume_percent -ne $null) {
-            " (Volume: $($device.volume_percent)%)"
-        } else {
-            ""
-        }
-        
-        Write-Host "$deviceIcon $($device.name)$volumeInfo" -ForegroundColor Gray
-    }
-    
-    # Add to playback history if track is playing
-    if ($isPlaying -and $item) {
-        Add-PlaybackHistoryEntry -TrackInfo $item
-    }
-}
-
-function next {
-    <#
-    .SYNOPSIS
-    Hoppa till nästa låt på Spotify
-    #>
-    try {
-        Invoke-SpotifyApi -Method POST -Path "/me/player/next" | Out-Null
-        Write-Host "⏭️ Nästa låt." -ForegroundColor Green
-        
-        # Wait a moment for the track to change, then check for notifications
-        Start-Sleep -Milliseconds 500
-        try {
-            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-            Update-TrackNotification -CurrentTrack $currentTrack
-        } catch {
-            # Ignore errors when checking for notifications
-        }
-    } catch { 
-        Handle-SpotifyError -ErrorRecord $_ -Context "skipping to next track" -ShowSuggestions $true
-    }
-}
-
-function pause {
-    <#
-    .SYNOPSIS
-    Pausa Spotify-uppspelning
-    #>
-    try {
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause" | Out-Null
-        Write-Host "⏸️ Pausad." -ForegroundColor Yellow
-    } catch { 
-        Handle-SpotifyError -ErrorRecord $_ -Context "pausing playback" -ShowSuggestions $true
-    }
-}
-
-function play {
-    <#
-    .SYNOPSIS
-    Starta Spotify-uppspelning
-    #>
-    try {
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" | Out-Null
-        Write-Host "▶️ Spelar." -ForegroundColor Green
-    } catch { 
-        Handle-SpotifyError -ErrorRecord $_ -Context "starting playback" -ShowSuggestions $true
-    }
-}
-
-function previous {
-    <#
-    .SYNOPSIS
-    Hoppa till föregående låt på Spotify
-    #>
-    try {
-        Invoke-SpotifyApi -Method POST -Path "/me/player/previous" | Out-Null
-        Write-Host "⏮️ Föregående låt." -ForegroundColor Green
-        
-        # Wait a moment for the track to change, then check for notifications
-        Start-Sleep -Milliseconds 500
-        try {
-            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-            Update-TrackNotification -CurrentTrack $currentTrack
-        } catch {
-            # Ignore errors when checking for notifications
-        }
-    } catch { 
-        Handle-SpotifyError -ErrorRecord $_ -Context "going to previous track" -ShowSuggestions $true
-    }
-}
-
-function Invoke-SeekCommand {
-    <#
-    .SYNOPSIS
-    Seek forward or backward in the current track
-    .PARAMETER Arguments
-    Seek time in seconds (positive for forward, negative for backward)
-    #>
-    param([string]$Arguments)
-    
-    if ([string]::IsNullOrWhiteSpace($Arguments)) {
-        Write-Error "Please provide seek time in seconds. Usage: /seek <seconds> (positive for forward, negative for backward)"
-        return
-    }
-    
-    try {
-        $seekSeconds = [int]$Arguments
-    }
-    catch {
-        Write-Error "Invalid seek time '$Arguments'. Please provide a number (positive for forward, negative for backward)"
-        return
-    }
-    
-    try {
-        # Get current playback state to calculate new position
-        $currentState = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-        
-        if (-not $currentState -or -not $currentState.item) {
-            Write-Warning "No track currently playing. Cannot seek."
-            return
-        }
-        
-        $currentProgress = $currentState.progress_ms
-        $trackDuration = $currentState.item.duration_ms
-        $seekMs = $seekSeconds * 1000
-        $newPosition = $currentProgress + $seekMs
-        
-        # Validate new position bounds
-        if ($newPosition -lt 0) {
-            $newPosition = 0
-            Write-Warning "Seeking to beginning of track (cannot seek before start)"
-        }
-        elseif ($newPosition -gt $trackDuration) {
-            Write-Warning "Cannot seek beyond track duration. Skipping to next track instead."
-            # Use the next function from this module
-            next
-            return
-        }
-        
-        # Perform the seek operation
-        $query = @{ position_ms = $newPosition }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/seek" -Query $query | Out-Null
-        
-        $direction = if ($seekSeconds -gt 0) { "forward" } else { "backward" }
-        $timeStr = ConvertTo-TimeString $newPosition
-        Write-Host "⏩ Seeked $direction $([Math]::Abs($seekSeconds)) seconds to $timeStr" -ForegroundColor Green
-    }
-    catch {
-        Handle-SpotifyError -ErrorRecord $_ -Context "seeking in track" -ShowSuggestions $true
-    }
-}
-
-function Invoke-VolumeCommand {
-    <#
-    .SYNOPSIS
-    Set Spotify playback volume
-    .PARAMETER Arguments
-    Volume level (0-100)
-    #>
-    param([string]$Arguments)
-    
-    if ([string]::IsNullOrWhiteSpace($Arguments)) {
-        Write-Error "Please provide volume level (0-100). Usage: /volume <0-100>"
-        return
-    }
-    
-    try {
-        $volumeLevel = [int]$Arguments
-    }
-    catch {
-        Write-Error "Invalid volume level '$Arguments'. Please provide a number between 0 and 100"
-        return
-    }
-    
-    # Validate volume range
-    if ($volumeLevel -lt 0 -or $volumeLevel -gt 100) {
-        Write-Error "Volume level must be between 0 and 100. Provided: $volumeLevel"
-        return
-    }
-    
-    try {
-        # Set volume using Spotify API
-        $query = @{ volume_percent = $volumeLevel }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/volume" -Query $query | Out-Null
-        
-        $volumeIcon = if ($volumeLevel -eq 0) { "🔇" } 
-                     elseif ($volumeLevel -lt 30) { "🔈" }
-                     elseif ($volumeLevel -lt 70) { "🔉" }
-                     else { "🔊" }
-        
-        Write-Host "$volumeIcon Volume set to $volumeLevel%" -ForegroundColor Green
-    }
-    catch {
-        Handle-SpotifyError -ErrorRecord $_ -Context "setting volume" -ShowSuggestions $true
-    }
-}
-
-function Invoke-ShuffleCommand {
-    <#
-    .SYNOPSIS
-    Control Spotify shuffle mode
-    .PARAMETER Arguments
-    Shuffle state (on/off, true/false, 1/0)
-    #>
-    param([string]$Arguments)
-    
-    if ([string]::IsNullOrWhiteSpace($Arguments)) {
-        Write-Error "Please specify shuffle state. Usage: /shuffle on|off"
-        return
-    }
-    
-    $shuffleState = $Arguments.Trim().ToLower()
-    
-    if ($shuffleState -notin @("on", "off", "true", "false", "1", "0")) {
-        Write-Error "Invalid shuffle state '$Arguments'. Use: on, off, true, false, 1, or 0"
-        return
-    }
-    
-    # Convert to boolean
-    $enableShuffle = $shuffleState -in @("on", "true", "1")
-    
-    try {
-        # Set shuffle state using Spotify API
-        $query = @{ state = $enableShuffle.ToString().ToLower() }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/shuffle" -Query $query | Out-Null
-        
-        $shuffleIcon = if ($enableShuffle) { "🔀" } else { "➡️" }
-        $stateText = if ($enableShuffle) { "enabled" } else { "disabled" }
-        
-        Write-Host "$shuffleIcon Shuffle $stateText" -ForegroundColor Green
-    }
-    catch {
-        Handle-SpotifyError -ErrorRecord $_ -Context "setting shuffle mode" -ShowSuggestions $true
-    }
-}
-
-function Invoke-RepeatCommand {
-    <#
-    .SYNOPSIS
-    Control Spotify repeat mode
-    .PARAMETER Arguments
-    Repeat mode (track, context, off)
-    #>
-    param([string]$Arguments)
-    
-    if ([string]::IsNullOrWhiteSpace($Arguments)) {
-        Write-Error "Please specify repeat mode. Usage: /repeat track|context|off"
-        return
-    }
-    
-    $repeatMode = $Arguments.Trim().ToLower()
-    
-    if ($repeatMode -notin @("track", "context", "off")) {
-        Write-Error "Invalid repeat mode '$Arguments'. Use: track, context, or off"
-        return
-    }
-    
-    try {
-        # Set repeat state using Spotify API
-        $query = @{ state = $repeatMode }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/repeat" -Query $query | Out-Null
-        
-        $repeatIcon = switch ($repeatMode) {
-            "track" { "🔂" }
-            "context" { "🔁" }
-            "off" { "➡️" }
-        }
-        
-        $modeText = switch ($repeatMode) {
-            "track" { "current track" }
-            "context" { "playlist/album" }
-            "off" { "disabled" }
-        }
-        
-        Write-Host "$repeatIcon Repeat $modeText" -ForegroundColor Green
-    }
-    catch {
-        Handle-SpotifyError -ErrorRecord $_ -Context "setting repeat mode" -ShowSuggestions $true
-    }
-}
-
-function devices {
-    <#
-    .SYNOPSIS
-    List all available Spotify Connect devices
-    #>
-    try {
-        $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
-        
-        if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-            Write-Host "No Spotify Connect devices found." -ForegroundColor Yellow
-            Write-Host "Make sure Spotify is open on at least one device (phone, computer, speaker, etc.)" -ForegroundColor Gray
-            return
-        }
-        
-        Write-Host "Available Spotify Connect Devices:" -ForegroundColor Cyan
-        Write-Host "==================================" -ForegroundColor Cyan
-        
-        foreach ($device in $devicesResponse.devices) {
-            $deviceIcon = switch ($device.type.ToLower()) {
-                "computer" { "💻" }
-                "smartphone" { "📱" }
-                "speaker" { "🔊" }
-                "tv" { "📺" }
-                "automobile" { "🚗" }
-                "cast_video" { "📺" }
-                "cast_audio" { "🔊" }
-                "tablet" { "📱" }
-                "game_console" { "🎮" }
-                default { "🎵" }
-            }
-            
-            $activeStatus = if ($device.is_active) { 
-                "[ACTIVE]" 
-            } else { 
-                "[INACTIVE]" 
-            }
-            
-            $volumeInfo = if ($device.volume_percent -ne $null) {
-                " - Volume: $($device.volume_percent)%"
-            } else {
-                ""
-            }
-            
-            $restrictedInfo = if ($device.is_restricted) {
-                " (Restricted)"
-            } else {
-                ""
-            }
-            
-            $statusColor = if ($device.is_active) { "Green" } else { "White" }
-            
-            Write-Host "$deviceIcon $($device.name) $activeStatus" -ForegroundColor $statusColor
-            Write-Host "   Type: $($device.type)$volumeInfo$restrictedInfo" -ForegroundColor Gray
-            Write-Host "   ID: $($device.id)" -ForegroundColor DarkGray
-            Write-Host ""
-        }
-        
-        Write-Host "Use 'transfer <device_id>' to switch playback to a specific device" -ForegroundColor Gray
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 401) {
-            "Authentication required. Please re-authenticate with Spotify"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 403) {
-            "Insufficient permissions. Make sure your Spotify app has the required scopes"
-        }
-        else {
-            "Could not retrieve devices: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function transfer {
-    <#
-    .SYNOPSIS
-    Transfer Spotify playback to a specific device
-    .PARAMETER DeviceId
-    The ID of the device to transfer playback to
-    #>
-    param([string]$DeviceId)
-    
-    if ([string]::IsNullOrWhiteSpace($DeviceId)) {
-        Write-Error "Please provide a device ID. Usage: transfer <device_id>"
-        Write-Host "Use 'devices' to see available devices and their IDs" -ForegroundColor Gray
-        return
-    }
-    
-    $deviceId = $DeviceId.Trim()
-    
-    try {
-        # First, get available devices to validate the device ID
-        $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
-        
-        if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-            Write-Warning "No Spotify Connect devices found. Make sure Spotify is open on at least one device"
-            return
-        }
-        
-        # Find the target device
-        $targetDevice = $devicesResponse.devices | Where-Object { $_.id -eq $deviceId }
-        
-        if (-not $targetDevice) {
-            Write-Error "Device ID '$deviceId' not found in available devices"
-            Write-Host "Available device IDs:" -ForegroundColor Gray
-            foreach ($device in $devicesResponse.devices) {
-                Write-Host "  $($device.id) - $($device.name)" -ForegroundColor Gray
-            }
-            return
-        }
-        
-        # Check if device is already active
-        if ($targetDevice.is_active) {
-            Write-Host "🎵 Device '$($targetDevice.name)' is already the active playback device" -ForegroundColor Yellow
-            return
-        }
-        
-        # Check if device is restricted
-        if ($targetDevice.is_restricted) {
-            Write-Warning "Device '$($targetDevice.name)' is restricted and may not accept playback transfer"
-        }
-        
-        # Transfer playback to the device
-        $transferBody = @{
-            device_ids = @($deviceId)
-            play = $true  # Continue playback on the new device
-        }
-        
-        Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody | Out-Null
-        
-        $deviceIcon = switch ($targetDevice.type.ToLower()) {
-            "computer" { "💻" }
-            "smartphone" { "📱" }
-            "speaker" { "🔊" }
-            "tv" { "📺" }
-            "automobile" { "🚗" }
-            "cast_video" { "📺" }
-            "cast_audio" { "🔊" }
-            "tablet" { "📱" }
-            "game_console" { "🎮" }
-            default { "🎵" }
-        }
-        
-        Write-Host "$deviceIcon Playback transferred to '$($targetDevice.name)'" -ForegroundColor Green
-        
-        # Brief pause to allow the transfer to complete
-        Start-Sleep -Milliseconds 500
-        
-        # Show current track on the new device
-        Write-Host ""
-        spotify
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Spotify Premium required for device transfer, or insufficient permissions"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 404) {
-            "Device not found or not available for transfer"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 502) {
-            "Device is temporarily unavailable. Try again in a moment"
-        }
-        else {
-            "Could not transfer playback: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-        
-        if ($_.Exception.Response.StatusCode -eq 404) {
-            Write-Host "Make sure the target device has Spotify open and is connected to the internet" -ForegroundColor Gray
-        }
-    }
-}
-
-function search {
-    <#
-    .SYNOPSIS
-    Search for tracks, artists, and albums on Spotify
-    .PARAMETER Query
-    Search query string
-    #>
-    param([string]$Query)
-    
-    if ([string]::IsNullOrWhiteSpace($Query)) {
-        Write-Error "Please provide a search query. Usage: search <query>"
-        return
-    }
-    
-    try {
-        # Search for tracks, artists, and albums
-        $queryParams = @{
-            q = $Query.Trim()
-            type = "track,artist,album"
-            limit = 10
-        }
-        
-        $searchResults = Invoke-SpotifyApi -Method GET -Path "/search" -Query $queryParams
-        
-        if (-not $searchResults) {
-            Write-Host "No search results found for '$Query'" -ForegroundColor Yellow
-            return
-        }
-        
-        Write-Host "Search Results for: '$Query'" -ForegroundColor Cyan
-        Write-Host "=================================" -ForegroundColor Cyan
-        
-        # Display tracks
-        if ($searchResults.tracks -and $searchResults.tracks.items -and $searchResults.tracks.items.Count -gt 0) {
-            Write-Host "`n🎵 Tracks:" -ForegroundColor Green
-            for ($i = 0; $i -lt [Math]::Min(5, $searchResults.tracks.items.Count); $i++) {
-                $track = $searchResults.tracks.items[$i]
-                $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
-                $duration = ConvertTo-TimeString $track.duration_ms
-                Write-Host "  $($i+1). $($track.name)" -ForegroundColor White
-                Write-Host "     👤 $artists" -ForegroundColor Yellow
-                Write-Host "     📀 $($track.album.name)" -ForegroundColor Green
-                Write-Host "     ⏱ $duration" -ForegroundColor Magenta
-                Write-Host "     🔗 URI: $($track.uri)" -ForegroundColor Gray
-                Write-Host ""
-            }
-        }
-        
-        # Display artists
-        if ($searchResults.artists -and $searchResults.artists.items -and $searchResults.artists.items.Count -gt 0) {
-            Write-Host "👤 Artists:" -ForegroundColor Green
-            for ($i = 0; $i -lt [Math]::Min(3, $searchResults.artists.items.Count); $i++) {
-                $artist = $searchResults.artists.items[$i]
-                $followers = if ($artist.followers -and $artist.followers.total) {
-                    " ($($artist.followers.total) followers)"
-                } else { "" }
-                Write-Host "  $($i+1). $($artist.name)$followers" -ForegroundColor White
-                Write-Host "     🔗 URI: $($artist.uri)" -ForegroundColor Gray
-                Write-Host ""
-            }
-        }
-        
-        # Display albums
-        if ($searchResults.albums -and $searchResults.albums.items -and $searchResults.albums.items.Count -gt 0) {
-            Write-Host "📀 Albums:" -ForegroundColor Green
-            for ($i = 0; $i -lt [Math]::Min(3, $searchResults.albums.items.Count); $i++) {
-                $album = $searchResults.albums.items[$i]
-                $artists = ($album.artists | ForEach-Object { $_.name }) -join ", "
-                $releaseYear = if ($album.release_date) {
-                    " (" + $album.release_date.Substring(0, 4) + ")"
-                } else { "" }
-                Write-Host "  $($i+1). $($album.name)$releaseYear" -ForegroundColor White
-                Write-Host "     👤 $artists" -ForegroundColor Yellow
-                Write-Host "     🔗 URI: $($album.uri)" -ForegroundColor Gray
-                Write-Host ""
-            }
-        }
-        
-        Write-Host "Use queue <track_uri> or play-track <track_uri> to play content" -ForegroundColor Gray
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 400) {
-            "Invalid search query. Please check your search terms"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 401) {
-            "Authentication required. Please re-authenticate"
-        }
-        else {
-            "Could not perform search: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function queue {
-    <#
-    .SYNOPSIS
-    Add a track to the Spotify playback queue
-    .PARAMETER TrackUri
-    Spotify track URI (spotify:track:xxxxxxxxxxxxxxxxxx)
-    #>
-    param([string]$TrackUri)
-    
-    if ([string]::IsNullOrWhiteSpace($TrackUri)) {
-        Write-Error "Please provide a track URI. Usage: queue <track_uri>"
-        return
-    }
-    
-    $trackUri = $TrackUri.Trim()
-    
-    # Validate URI format
-    if (-not ($trackUri -match "^spotify:(track|episode):[a-zA-Z0-9]{22}$")) {
-        Write-Error "Invalid URI format. Expected format: spotify:track:xxxxxxxxxxxxxxxxxx or spotify:episode:xxxxxxxxxxxxxxxxxx"
-        return
-    }
-    
-    try {
-        # Add track to queue
-        $queryParams = @{ uri = $trackUri }
-        Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query $queryParams | Out-Null
-        
-        Write-Host "🎵 Track added to queue" -ForegroundColor Green
-        
-        # Try to get track info for confirmation
-        try {
-            $trackId = $trackUri -replace "spotify:track:", ""
-            $trackInfo = Invoke-SpotifyApi -Method GET -Path "/tracks/$trackId"
-            if ($trackInfo) {
-                $artists = ($trackInfo.artists | ForEach-Object { $_.name }) -join ", "
-                Write-Host "   $($trackInfo.name) by $artists" -ForegroundColor White
-            }
-        }
-        catch {
-            # Ignore errors when getting track info for display
-        }
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Spotify Premium required for queue functionality"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 404) {
-            "No active device found or track not found. Please start Spotify on a device"
-        }
-        else {
-            "Could not add track to queue: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function play-track {
-    <#
-    .SYNOPSIS
-    Play a specific track immediately
-    .PARAMETER TrackUri
-    Spotify track URI (spotify:track:xxxxxxxxxxxxxxxxxx)
-    #>
-    param([string]$TrackUri)
-    
-    if ([string]::IsNullOrWhiteSpace($TrackUri)) {
-        Write-Error "Please provide a track URI. Usage: play-track <track_uri>"
-        return
-    }
-    
-    $trackUri = $TrackUri.Trim()
-    
-    # Validate URI format
-    if (-not ($trackUri -match "^spotify:track:[a-zA-Z0-9]{22}$")) {
-        Write-Error "Invalid URI format. Expected format: spotify:track:xxxxxxxxxxxxxxxxxx"
-        return
-    }
-    
-    try {
-        # Play the specific track
-        $body = @{
-            uris = @($trackUri)
-        }
-        
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
-        
-        Write-Host "🎵 Started playing track" -ForegroundColor Green
-        
-        # Try to get track info for confirmation
-        try {
-            $trackId = $trackUri -replace "spotify:track:", ""
-            $trackInfo = Invoke-SpotifyApi -Method GET -Path "/tracks/$trackId"
-            if ($trackInfo) {
-                $artists = ($trackInfo.artists | ForEach-Object { $_.name }) -join ", "
-                Write-Host "   $($trackInfo.name) by $artists" -ForegroundColor White
-            }
-        }
-        catch {
-            # Ignore errors when getting track info for display
-        }
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Spotify Premium required for playback control"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 404) {
-            "No active device found or track not found. Please start Spotify on a device"
-        }
-        else {
-            "Could not start playback: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function play-album {
-    <#
-    .SYNOPSIS
-    Play a specific album immediately
-    .PARAMETER AlbumUri
-    Spotify album URI (spotify:album:xxxxxxxxxxxxxxxxxx)
-    #>
-    param([string]$AlbumUri)
-    
-    if ([string]::IsNullOrWhiteSpace($AlbumUri)) {
-        Write-Error "Please provide an album URI. Usage: play-album <album_uri>"
-        return
-    }
-    
-    $albumUri = $AlbumUri.Trim()
-    
-    # Validate URI format
-    if (-not ($albumUri -match "^spotify:album:[a-zA-Z0-9]{22}$")) {
-        Write-Error "Invalid URI format. Expected format: spotify:album:xxxxxxxxxxxxxxxxxx"
-        return
-    }
-    
-    try {
-        # Play the specific album
-        $body = @{
-            context_uri = $albumUri
-        }
-        
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
-        
-        Write-Host "📀 Started playing album" -ForegroundColor Green
-        
-        # Try to get album info for confirmation
-        try {
-            $albumId = $albumUri -replace "spotify:album:", ""
-            $albumInfo = Invoke-SpotifyApi -Method GET -Path "/albums/$albumId"
-            if ($albumInfo) {
-                $artists = ($albumInfo.artists | ForEach-Object { $_.name }) -join ", "
-                Write-Host "   $($albumInfo.name) by $artists" -ForegroundColor White
-            }
-        }
-        catch {
-            # Ignore errors when getting album info for display
-        }
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Spotify Premium required for playback control"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 404) {
-            "No active device found or album not found. Please start Spotify on a device"
-        }
-        else {
-            "Could not start playback: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function play-playlist {
-    <#
-    .SYNOPSIS
-    Play a specific playlist immediately
-    .PARAMETER PlaylistUri
-    Spotify playlist URI (spotify:playlist:xxxxxxxxxxxxxxxxxx)
-    #>
-    param([string]$PlaylistUri)
-    
-    if ([string]::IsNullOrWhiteSpace($PlaylistUri)) {
-        Write-Error "Please provide a playlist URI. Usage: play-playlist <playlist_uri>"
-        return
-    }
-    
-    $playlistUri = $PlaylistUri.Trim()
-    
-    # Validate URI format
-    if (-not ($playlistUri -match "^spotify:playlist:[a-zA-Z0-9]{22}$")) {
-        Write-Error "Invalid URI format. Expected format: spotify:playlist:xxxxxxxxxxxxxxxxxx"
-        return
-    }
-    
-    try {
-        # Play the specific playlist
-        $body = @{
-            context_uri = $playlistUri
-        }
-        
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
-        
-        Write-Host "📋 Started playing playlist" -ForegroundColor Green
-        
-        # Try to get playlist info for confirmation
-        try {
-            $playlistId = $playlistUri -replace "spotify:playlist:", ""
-            $playlistInfo = Invoke-SpotifyApi -Method GET -Path "/playlists/$playlistId"
-            if ($playlistInfo) {
-                Write-Host "   $($playlistInfo.name)" -ForegroundColor White
-                if ($playlistInfo.description) {
-                    Write-Host "   $($playlistInfo.description)" -ForegroundColor Gray
-                }
-            }
-        }
-        catch {
-            # Ignore errors when getting playlist info for display
-        }
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Spotify Premium required for playback control"
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 404) {
-            "No active device found or playlist not found. Please start Spotify on a device"
-        }
-        else {
-            "Could not start playback: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function playlists {
-    <#
-    .SYNOPSIS
-    Display user playlists with metadata
-    .DESCRIPTION
-    Shows user's playlists including name, track count, and description.
-    Handles both public and private playlists based on access permissions.
-    #>
-    try {
-        Write-Host "Loading playlists..." -ForegroundColor Gray
-        
-        # Get user's playlists with pagination support
-        $limit = 50
-        $offset = 0
-        $allPlaylists = @()
-        
-        do {
-            $query = @{
-                limit = $limit
-                offset = $offset
-            }
-            
-            $playlistsResponse = Invoke-SpotifyApi -Method GET -Path "/me/playlists" -Query $query
-            
-            if ($playlistsResponse -and $playlistsResponse.items) {
-                $allPlaylists += $playlistsResponse.items
-                $offset += $limit
-            } else {
-                break
-            }
-        } while ($playlistsResponse.items.Count -eq $limit -and $allPlaylists.Count -lt 200) # Limit to 200 playlists max
-        
-        if ($allPlaylists.Count -eq 0) {
-            Write-Host "No playlists found." -ForegroundColor Yellow
-            Write-Host "Create some playlists in Spotify to see them here." -ForegroundColor Gray
-            return
-        }
-        
-        Write-Host "Your Spotify Playlists:" -ForegroundColor Cyan
-        Write-Host "======================" -ForegroundColor Cyan
-        Write-Host ""
-        
-        foreach ($playlist in $allPlaylists) {
-            $playlistIcon = if ($playlist.public -eq $false) { "🔒" } else { "📋" }
-            $ownerInfo = if ($playlist.owner.display_name) { 
-                " by $($playlist.owner.display_name)" 
-            } else { 
-                "" 
-            }
-            
-            # Handle collaborative playlists
-            if ($playlist.collaborative) {
-                $playlistIcon = "👥"
-            }
-            
-            Write-Host "$playlistIcon $($playlist.name)$ownerInfo" -ForegroundColor White
-            Write-Host "   📊 $($playlist.tracks.total) tracks" -ForegroundColor Gray
-            
-            if ($playlist.description -and $playlist.description.Trim() -ne "") {
-                # Clean up HTML entities and limit description length
-                $description = $playlist.description -replace '&quot;', '"' -replace '&amp;', '&' -replace '&lt;', '<' -replace '&gt;', '>'
-                if ($description.Length -gt 100) {
-                    $description = $description.Substring(0, 97) + "..."
-                }
-                Write-Host "   📝 $description" -ForegroundColor DarkGray
-            }
-            
-            Write-Host "   🔗 URI: $($playlist.uri)" -ForegroundColor DarkGray
-            Write-Host ""
-        }
-        
-        Write-Host "Total: $($allPlaylists.Count) playlists" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "Use 'play playlist <uri>' to play a playlist" -ForegroundColor Gray
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Access denied. Make sure you have granted playlist permissions during authentication."
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 401) {
-            "Authentication required. Please re-authenticate or restart PowerShell."
-        }
-        else {
-            "Could not load playlists: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function liked {
-    <#
-    .SYNOPSIS
-    Display user's saved/liked tracks
-    .DESCRIPTION
-    Shows the user's saved tracks (liked songs) with metadata including track name, artist, album, and duration.
-    #>
-    try {
-        Write-Host "Loading liked songs..." -ForegroundColor Gray
-        
-        # Get user's saved tracks with pagination support
-        $limit = 50
-        $offset = 0
-        $allTracks = @()
-        
-        do {
-            $query = @{
-                limit = $limit
-                offset = $offset
-            }
-            
-            $tracksResponse = Invoke-SpotifyApi -Method GET -Path "/me/tracks" -Query $query
-            
-            if ($tracksResponse -and $tracksResponse.items) {
-                $allTracks += $tracksResponse.items
-                $offset += $limit
-            } else {
-                break
-            }
-        } while ($tracksResponse.items.Count -eq $limit -and $allTracks.Count -lt 200) # Limit to 200 tracks max for display
-        
-        if ($allTracks.Count -eq 0) {
-            Write-Host "No liked songs found." -ForegroundColor Yellow
-            Write-Host "Like some songs in Spotify or use 'save-track' to add the current track." -ForegroundColor Gray
-            return
-        }
-        
-        Write-Host "Your Liked Songs:" -ForegroundColor Cyan
-        Write-Host "=================" -ForegroundColor Cyan
-        Write-Host ""
-        
-        foreach ($item in $allTracks) {
-            $track = $item.track
-            $addedAt = [DateTime]::Parse($item.added_at).ToString("yyyy-MM-dd")
-            
-            Write-Host "💚 $($track.name)" -ForegroundColor Green
-            Write-Host "   👤 $($track.artists | ForEach-Object { $_.name } | Join-String -Separator ', ')" -ForegroundColor Yellow
-            Write-Host "   📀 $($track.album.name)" -ForegroundColor Cyan
-            Write-Host "   ⏱ $(ConvertTo-TimeString $track.duration_ms) | Added: $addedAt" -ForegroundColor Gray
-            Write-Host "   🔗 URI: $($track.uri)" -ForegroundColor DarkGray
-            Write-Host ""
-        }
-        
-        Write-Host "Total: $($allTracks.Count) liked songs" -ForegroundColor Cyan
-        if ($allTracks.Count -eq 200) {
-            Write-Host "(Showing first 200 songs)" -ForegroundColor Gray
-        }
-        Write-Host ""
-        Write-Host "Use 'save-track' to add current track to liked songs" -ForegroundColor Gray
-        Write-Host "Use 'unsave-track' to remove current track from liked songs" -ForegroundColor Gray
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Access denied. Make sure you have granted library permissions during authentication."
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 401) {
-            "Authentication required. Please re-authenticate or restart PowerShell."
-        }
-        else {
-            "Could not load liked songs: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function save-track {
-    <#
-    .SYNOPSIS
-    Add current track to liked songs
-    .DESCRIPTION
-    Saves the currently playing track to the user's "Liked Songs" library.
-    Validates that a track is currently playing before attempting to save.
-    #>
-    try {
-        # Get current track
-        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-        
-        if (-not $currentTrack -or -not $currentTrack.item) {
-            Write-Warning "No track currently playing. Cannot save to liked songs."
-            Write-Host "Start playing a track first, then use 'save-track' to add it to your liked songs." -ForegroundColor Gray
-            return
-        }
-        
-        $track = $currentTrack.item
-        $trackId = $track.id
-        
-        # Check if track is already saved
-        $query = @{ ids = $trackId }
-        $checkResponse = Invoke-SpotifyApi -Method GET -Path "/me/tracks/contains" -Query $query
-        
-        if ($checkResponse -and $checkResponse[0] -eq $true) {
-            Write-Host "💚 '$($track.name)' is already in your liked songs." -ForegroundColor Green
-            return
-        }
-        
-        # Save the track
-        $query = @{ ids = $trackId }
-        Invoke-SpotifyApi -Method PUT -Path "/me/tracks" -Query $query | Out-Null
-        
-        Write-Host "💚 Added '$($track.name)' by $($track.artists | ForEach-Object { $_.name } | Join-String -Separator ', ') to liked songs!" -ForegroundColor Green
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Access denied. Make sure you have granted library permissions during authentication."
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 401) {
-            "Authentication required. Please re-authenticate or restart PowerShell."
-        }
-        else {
-            "Could not save track: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function unsave-track {
-    <#
-    .SYNOPSIS
-    Remove current track from liked songs
-    .DESCRIPTION
-    Removes the currently playing track from the user's "Liked Songs" library.
-    Validates that a track is currently playing before attempting to remove.
-    #>
-    try {
-        # Get current track
-        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-        
-        if (-not $currentTrack -or -not $currentTrack.item) {
-            Write-Warning "No track currently playing. Cannot remove from liked songs."
-            Write-Host "Start playing a track first, then use 'unsave-track' to remove it from your liked songs." -ForegroundColor Gray
-            return
-        }
-        
-        $track = $currentTrack.item
-        $trackId = $track.id
-        
-        # Check if track is currently saved
-        $query = @{ ids = $trackId }
-        $checkResponse = Invoke-SpotifyApi -Method GET -Path "/me/tracks/contains" -Query $query
-        
-        if ($checkResponse -and $checkResponse[0] -eq $false) {
-            Write-Host "💔 '$($track.name)' is not in your liked songs." -ForegroundColor Yellow
-            return
-        }
-        
-        # Remove the track
-        $query = @{ ids = $trackId }
-        Invoke-SpotifyApi -Method DELETE -Path "/me/tracks" -Query $query | Out-Null
-        
-        Write-Host "💔 Removed '$($track.name)' by $($track.artists | ForEach-Object { $_.name } | Join-String -Separator ', ') from liked songs." -ForegroundColor Yellow
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Access denied. Make sure you have granted library permissions during authentication."
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 401) {
-            "Authentication required. Please re-authenticate or restart PowerShell."
-        }
-        else {
-            "Could not remove track: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function recent {
-    <#
-    .SYNOPSIS
-    Display recently played tracks
-    .DESCRIPTION
-    Shows the user's recently played tracks with timestamps and metadata including track name, artist, album, and when it was played.
-    #>
-    try {
-        Write-Host "Loading recently played tracks..." -ForegroundColor Gray
-        
-        # Get recently played tracks (limit to 50, which is the maximum allowed by Spotify API)
-        $query = @{
-            limit = 50
-        }
-        
-        $recentResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/recently-played" -Query $query
-        
-        if (-not $recentResponse -or -not $recentResponse.items -or $recentResponse.items.Count -eq 0) {
-            Write-Host "No recently played tracks found." -ForegroundColor Yellow
-            Write-Host "Play some music in Spotify to see your listening history here." -ForegroundColor Gray
-            return
-        }
-        
-        Write-Host "Recently Played Tracks:" -ForegroundColor Cyan
-        Write-Host "======================" -ForegroundColor Cyan
-        Write-Host ""
-        
-        foreach ($item in $recentResponse.items) {
-            $track = $item.track
-            $playedAt = [DateTime]::Parse($item.played_at)
-            
-            # Format the timestamp based on how recent it is
-            $now = [DateTime]::UtcNow
-            $timeDiff = $now - $playedAt
-            
-            $timeDisplay = if ($timeDiff.TotalDays -ge 1) {
-                $playedAt.ToString("MMM dd, HH:mm")
-            } elseif ($timeDiff.TotalHours -ge 1) {
-                "$([int]$timeDiff.TotalHours)h ago"
-            } elseif ($timeDiff.TotalMinutes -ge 1) {
-                "$([int]$timeDiff.TotalMinutes)m ago"
-            } else {
-                "Just now"
-            }
-            
-            Write-Host "🎵 $($track.name)" -ForegroundColor Cyan
-            Write-Host "   👤 $($track.artists | ForEach-Object { $_.name } | Join-String -Separator ', ')" -ForegroundColor Yellow
-            Write-Host "   📀 $($track.album.name)" -ForegroundColor Green
-            Write-Host "   ⏱ $(ConvertTo-TimeString $track.duration_ms) | Played: $timeDisplay" -ForegroundColor Gray
-            Write-Host "   🔗 URI: $($track.uri)" -ForegroundColor DarkGray
-            Write-Host ""
-        }
-        
-        Write-Host "Total: $($recentResponse.items.Count) recent tracks" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "Use 'play-track <uri>' to play any of these tracks again" -ForegroundColor Gray
-        
-    }
-    catch {
-        $errorMsg = if ($_.Exception.Response.StatusCode -eq 403) {
-            "Access denied. Make sure you have granted recently played permissions during authentication."
-        }
-        elseif ($_.Exception.Response.StatusCode -eq 401) {
-            "Authentication required. Please re-authenticate or restart PowerShell."
-        }
-        else {
-            "Could not load recently played tracks: $($_.Exception.Message)"
-        }
-        Write-Warning $errorMsg
-    }
-}
-
-function history {
-    <#
-    .SYNOPSIS
-    Display playback history
-    .PARAMETER Last
-    Number of entries to show (default: 20)
-    .PARAMETER Clear
-    Clear the playback history
-    #>
-    param(
-        [int]$Last = 20,
-        [switch]$Clear
-    )
-    
-    if ($Clear) {
-        Clear-PlaybackHistory
-        return
-    }
-    
-    $historyEntries = Get-PlaybackHistory -Last $Last
-    
-    if ($historyEntries.Count -eq 0) {
-        Write-Host "No playback history found." -ForegroundColor Yellow
-        Write-Host "History is automatically recorded when tracks are playing and HistoryEnabled is true in configuration." -ForegroundColor Gray
-        return
-    }
-    
-    Write-Host "Playback History (Last $($historyEntries.Count) entries)" -ForegroundColor Cyan
-    Write-Host "=================================================" -ForegroundColor Cyan
-    Write-Host ""
-    
-    for ($i = 0; $i -lt $historyEntries.Count; $i++) {
-        $entry = $historyEntries[$i]
-        $timestamp = [DateTime]::Parse($entry.Timestamp).ToLocalTime()
-        $timeAgo = Get-TimeAgo -DateTime $timestamp
-        
-        Write-Host "$($i + 1). " -NoNewline -ForegroundColor Gray
-        Write-Host "$($entry.TrackName)" -ForegroundColor (Get-TrackColor)
-        Write-Host "   👤 $($entry.Artists)" -ForegroundColor (Get-ArtistColor)
-        Write-Host "   📀 $($entry.Album)" -ForegroundColor (Get-AlbumColor)
-        Write-Host "   🕒 $timeAgo ($($timestamp.ToString('yyyy-MM-dd HH:mm')))" -ForegroundColor Gray
-        
-        if ($entry.Uri) {
-            Write-Host "   🔗 $($entry.Uri)" -ForegroundColor DarkGray
-        }
-        
-        Write-Host ""
-    }
-    
-    Write-Host "Use 'history -Clear' to clear the playback history" -ForegroundColor Gray
-}
-
-function Get-TimeAgo {
-    <#
-    .SYNOPSIS
-    Get a human-readable time ago string
-    #>
-    param([DateTime]$DateTime)
-    
-    $timeSpan = (Get-Date) - $DateTime
-    
-    if ($timeSpan.TotalMinutes -lt 1) {
-        return "just now"
-    } elseif ($timeSpan.TotalMinutes -lt 60) {
-        $minutes = [Math]::Floor($timeSpan.TotalMinutes)
-        return "$minutes minute$(if ($minutes -ne 1) { 's' }) ago"
-    } elseif ($timeSpan.TotalHours -lt 24) {
-        $hours = [Math]::Floor($timeSpan.TotalHours)
-        return "$hours hour$(if ($hours -ne 1) { 's' }) ago"
-    } elseif ($timeSpan.TotalDays -lt 7) {
-        $days = [Math]::Floor($timeSpan.TotalDays)
-        return "$days day$(if ($days -ne 1) { 's' }) ago"
-    } else {
-        $weeks = [Math]::Floor($timeSpan.TotalDays / 7)
-        return "$weeks week$(if ($weeks -ne 1) { 's' }) ago"
-    }
-}
-
-function logs {
-    <#
-    .SYNOPSIS
-    Display and manage log entries
-    .PARAMETER Level
-    Filter by log level (Debug, Info, Warning, Error)
-    .PARAMETER Component
-    Filter by component
-    .PARAMETER Last
-    Number of entries to show (default: 50)
-    .PARAMETER Clear
-    Clear the log file
-    #>
-    param(
-        [ValidateSet("Debug", "Info", "Warning", "Error")]
-        [string]$Level,
-        [string]$Component,
-        [int]$Last = 50,
-        [switch]$Clear
-    )
-    
-    if ($Clear) {
-        try {
-            if (Test-Path $script:LogFile) {
-                Remove-Item -Path $script:LogFile -Force
-                Write-InfoLog -Message "Log file cleared by user" -Component "LogManagement"
-            }
-            Write-Host "✅ Log file cleared" -ForegroundColor Green
-        } catch {
-            Write-Host "❌ Failed to clear log file: $($_.Exception.Message)" -ForegroundColor Red
-        }
-        return
-    }
-    
-    $config = Get-SpotifyConfig
-    if (-not $config.LoggingEnabled) {
-        Write-Host "⚠️ Logging is currently disabled" -ForegroundColor Yellow
-        Write-Host "Enable logging with: config LoggingEnabled true" -ForegroundColor Gray
-        return
-    }
-    
-    $logEntries = Get-LogEntries -Level $Level -Component $Component -Last $Last
-    
-    if ($logEntries.Count -eq 0) {
-        Write-Host "No log entries found." -ForegroundColor Yellow
-        if ($Level -or $Component) {
-            Write-Host "Try removing filters or check if logging is enabled." -ForegroundColor Gray
-        }
-        return
-    }
-    
-    $filterText = ""
-    if ($Level) { $filterText += " Level=$Level" }
-    if ($Component) { $filterText += " Component=$Component" }
-    
-    Write-Host "Log Entries (Last $($logEntries.Count)$filterText)" -ForegroundColor Cyan
-    Write-Host "=============================================" -ForegroundColor Cyan
-    Write-Host ""
-    
-    foreach ($entry in $logEntries) {
-        $timestamp = [DateTime]::Parse($entry.Timestamp).ToLocalTime()
-        $levelColor = switch ($entry.Level) {
-            "Debug" { "Gray" }
-            "Info" { "White" }
-            "Warning" { "Yellow" }
-            "Error" { "Red" }
-            default { "White" }
-        }
-        
-        Write-Host "[$($timestamp.ToString('HH:mm:ss'))] " -NoNewline -ForegroundColor Gray
-        Write-Host "[$($entry.Level.ToUpper())] " -NoNewline -ForegroundColor $levelColor
-        Write-Host "[$($entry.Component)] " -NoNewline -ForegroundColor Cyan
-        Write-Host "$($entry.Message)" -ForegroundColor White
-        
-        if ($entry.Exception) {
-            Write-Host "   Exception: $($entry.Exception.Type) - $($entry.Exception.Message)" -ForegroundColor Red
-        }
-    }
-    
-    Write-Host ""
-    Write-Host "Use 'logs -Clear' to clear the log file" -ForegroundColor Gray
-    Write-Host "Use 'logs -Level Error' to show only errors" -ForegroundColor Gray
-    Write-Host "Use 'logs -Component SpotifyAPI' to show only API logs" -ForegroundColor Gray
-}
-
-#region Windows Notification Functions
-function Show-TrackNotification {
-    <#
-    .SYNOPSIS
-    Show a Windows toast notification for track changes
-    .PARAMETER Title
-    Notification title
-    .PARAMETER Message
-    Notification message
-    .PARAMETER TrackInfo
-    Track information from Spotify API
-    .PARAMETER IsTest
-    Whether this is a test notification
-    #>
-    param(
-        [string]$Title,
-        [string]$Message,
-        $TrackInfo,
-        [switch]$IsTest
-    )
-    
-    $config = Get-SpotifyConfig
-    if (-not $config.NotificationsEnabled -and -not $IsTest) {
-        return
-    }
-    
-    try {
-        # Check if we're on Windows 10/11 with toast notification support
-        if ([System.Environment]::OSVersion.Version.Major -lt 10) {
-            Write-DebugLog -Message "Toast notifications require Windows 10 or later" -Component "Notifications"
-            return
-        }
-        
-        # Load Windows Runtime for toast notifications
-        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-        [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-        
-        # Create notification content
-        if ($TrackInfo) {
-            $notificationTitle = $TrackInfo.name
-            $artists = ($TrackInfo.artists | ForEach-Object { $_.name }) -join ", "
-            $album = $TrackInfo.album.name
-            $notificationMessage = "by $artists`nfrom $album"
-        } else {
-            $notificationTitle = $Title
-            $notificationMessage = $Message
-        }
-        
-        # Create XML template for toast notification
-        $toastXml = @"
-<toast>
-    <visual>
-        <binding template="ToastGeneric">
-            <text>$([System.Security.SecurityElement]::Escape($notificationTitle))</text>
-            <text>$([System.Security.SecurityElement]::Escape($notificationMessage))</text>
-        </binding>
-    </visual>
-    <audio silent="true"/>
-</toast>
-"@
-        
-        # Create XML document
-        $xmlDoc = New-Object Windows.Data.Xml.Dom.XmlDocument
-        $xmlDoc.LoadXml($toastXml)
-        
-        # Create toast notification
-        $toast = [Windows.UI.Notifications.ToastNotification]::new($xmlDoc)
-        
-        # Show notification
-        $appId = "SpotifyCLI"
-        $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId)
-        $notifier.Show($toast)
-        
-        Write-DebugLog -Message "Toast notification shown: $notificationTitle" -Component "Notifications"
-        
-    } catch {
-        Write-DebugLog -Message "Failed to show toast notification: $($_.Exception.Message)" -Component "Notifications" -Exception $_
-        
-        # Fallback to console notification
-        Write-Host "🎵 $notificationTitle" -ForegroundColor Cyan
-        if ($notificationMessage) {
-            Write-Host "   $notificationMessage" -ForegroundColor Gray
-        }
-    }
-}
-
-function Send-TrackChangeNotification {
-    <#
-    .SYNOPSIS
-    Send notification when track changes
-    .PARAMETER TrackInfo
-    Current track information
-    .PARAMETER PreviousTrackId
-    ID of the previous track to detect changes
-    #>
-    param(
-        $TrackInfo,
-        [string]$PreviousTrackId
-    )
-    
-    $config = Get-SpotifyConfig
-    if (-not $config.NotificationsEnabled) {
-        return $TrackInfo.id
-    }
-    
-    # Check if track has actually changed
-    if ($TrackInfo.id -eq $PreviousTrackId) {
-        return $TrackInfo.id
-    }
-    
-    # Show notification for new track
-    Show-TrackNotification -TrackInfo $TrackInfo
-    
-    Write-DebugLog -Message "Track change notification sent for: $($TrackInfo.name)" -Component "Notifications"
-    
-    return $TrackInfo.id
-}
-
-function auto-refresh {
-    <#
-    .SYNOPSIS
-    Enable or disable auto-refresh functionality for automatic display updates
-    .PARAMETER Interval
-    Refresh interval in seconds (0 to disable)
-    #>
-    param([int]$Interval = 0)
-    
-    if ($Interval -eq 0) {
-        # Show current status or disable
-        $config = Get-SpotifyConfig
-        if ($config.AutoRefreshInterval -gt 0) {
-            Write-Host "🔄 Auto-refresh is currently enabled ($($config.AutoRefreshInterval) seconds)" -ForegroundColor Cyan
-            Write-Host "Use auto-refresh 0 to disable" -ForegroundColor Gray
-        } else {
-            Write-Host "🔄 Auto-refresh is currently disabled" -ForegroundColor Cyan
-            Write-Host "Use auto-refresh <seconds> to enable (e.g., auto-refresh 5)" -ForegroundColor Gray
-        }
-        return
-    }
-    
-    if ($Interval -lt 0) {
-        Write-Host "❌ Invalid interval: $Interval" -ForegroundColor Red
-        Write-Host "Interval must be 0 (to disable) or a positive number" -ForegroundColor Yellow
-        return
-    }
-    
-    $config = Get-SpotifyConfig
-    $config.AutoRefreshInterval = $Interval
-    
-    if (Set-SpotifyConfig -Config $config) {
-        if ($Interval -gt 0) {
-            Write-Host "✅ Auto-refresh enabled ($Interval seconds)" -ForegroundColor Green
-            Write-Host "💡 Note: Auto-refresh works best in interactive CLI mode" -ForegroundColor Cyan
-        } else {
-            Write-Host "✅ Auto-refresh disabled" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "❌ Failed to update auto-refresh settings" -ForegroundColor Red
-    }
-}
-
 function notifications {
     <#
     .SYNOPSIS
     Control notification settings
-    .DESCRIPTION
-    Enable or disable Windows notifications for track changes
     .PARAMETER Action
     Action to perform: 'on', 'off', 'status', or 'test'
     .EXAMPLE
     notifications on
     Enable notifications
-    .EXAMPLE
-    notifications off
-    Disable notifications
-    .EXAMPLE
-    notifications status
-    Show current notification status
     .EXAMPLE
     notifications test
     Test notification system
@@ -3548,40 +800,840 @@ function notifications {
         }
     }
 }
+
+# Additional functions from CLI that should be available globally
+function volume {
+    <#
+    .SYNOPSIS
+    Control Spotify volume
+    .PARAMETER Level
+    Volume level (0-100)
+    .EXAMPLE
+    volume 75
+    Set volume to 75%
+    #>
+    param([int]$Level)
+    
+    if ($Level -lt 0 -or $Level -gt 100) {
+        Write-Host "❌ Volume must be between 0 and 100" -ForegroundColor Red
+        return
+    }
+    
+    try {
+        $query = @{ volume_percent = $Level }
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/volume" -Query $query | Out-Null
+        Write-Host "🔊 Volume set to $Level%" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not set volume" -ForegroundColor Red
+    }
+}
+
+function seek {
+    <#
+    .SYNOPSIS
+    Seek in current track
+    .PARAMETER Seconds
+    Seconds to seek (positive = forward, negative = backward)
+    .EXAMPLE
+    seek 30
+    Seek forward 30 seconds
+    .EXAMPLE
+    seek -10
+    Seek backward 10 seconds
+    #>
+    param([int]$Seconds)
+    
+    try {
+        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+        if (-not $currentTrack -or -not $currentTrack.item) {
+            Write-Host "❌ No track currently playing" -ForegroundColor Red
+            return
+        }
+        
+        $currentPosition = $currentTrack.progress_ms
+        $newPosition = $currentPosition + ($Seconds * 1000)
+        $maxPosition = $currentTrack.item.duration_ms
+        
+        # Ensure position is within bounds
+        if ($newPosition -lt 0) { $newPosition = 0 }
+        if ($newPosition -gt $maxPosition) { $newPosition = $maxPosition }
+        
+        $query = @{ position_ms = $newPosition }
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/seek" -Query $query | Out-Null
+        
+        $direction = if ($Seconds -gt 0) { "forward" } else { "backward" }
+        Write-Host "⏩ Seeked $direction $([Math]::Abs($Seconds)) seconds" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not seek in track" -ForegroundColor Red
+    }
+}
+
+function shuffle {
+    <#
+    .SYNOPSIS
+    Control shuffle mode
+    .PARAMETER State
+    Shuffle state: 'on', 'off', or 'toggle'
+    .EXAMPLE
+    shuffle on
+    Enable shuffle
+    .EXAMPLE
+    shuffle toggle
+    Toggle shuffle state
+    #>
+    param([ValidateSet('on', 'off', 'toggle')][string]$State = 'toggle')
+    
+    try {
+        if ($State -eq 'toggle') {
+            # Get current state first
+            $currentState = Invoke-SpotifyApi -Method GET -Path "/me/player"
+            $currentShuffle = $currentState.shuffle_state
+            $newState = -not $currentShuffle
+        } else {
+            $newState = ($State -eq 'on')
+        }
+        
+        $query = @{ state = $newState.ToString().ToLower() }
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/shuffle" -Query $query | Out-Null
+        
+        $stateText = if ($newState) { "enabled" } else { "disabled" }
+        $icon = if ($newState) { "🔀" } else { "➡️" }
+        Write-Host "$icon Shuffle $stateText" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not change shuffle state" -ForegroundColor Red
+    }
+}
+
+function repeat {
+    <#
+    .SYNOPSIS
+    Control repeat mode
+    .PARAMETER Mode
+    Repeat mode: 'track', 'context', 'off'
+    .EXAMPLE
+    repeat track
+    Repeat current track
+    .EXAMPLE
+    repeat off
+    Disable repeat
+    #>
+    param([ValidateSet('track', 'context', 'off')][string]$Mode = 'off')
+    
+    try {
+        $query = @{ state = $Mode }
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/repeat" -Query $query | Out-Null
+        
+        $icon = switch ($Mode) {
+            "track" { "🔂" }
+            "context" { "🔁" }
+            "off" { "➡️" }
+        }
+        
+        $modeText = switch ($Mode) {
+            "track" { "current track" }
+            "context" { "playlist/album" }
+            "off" { "disabled" }
+        }
+        
+        Write-Host "$icon Repeat $modeText" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not change repeat mode" -ForegroundColor Red
+    }
+}
+
+function transfer {
+    <#
+    .SYNOPSIS
+    Transfer playback to another device
+    .PARAMETER DeviceId
+    Device ID or number (from devices list) to transfer to
+    .EXAMPLE
+    transfer 1
+    Transfer playback to device #1 from devices list
+    .EXAMPLE
+    transfer abc123
+    Transfer playback to device with ID abc123
+    #>
+    param([string]$DeviceId)
+    
+    if ([string]::IsNullOrWhiteSpace($DeviceId)) {
+        Write-Host "Usage: transfer <device_number_or_id>" -ForegroundColor Yellow
+        Write-Host "Use 'devices' command to see available devices" -ForegroundColor Gray
+        return
+    }
+    
+    $actualDeviceId = $DeviceId
+    
+    # Check if it's a number (device index)
+    if ($DeviceId -match '^\d+$') {
+        $deviceIndex = [int]$DeviceId - 1
+        if ($script:SessionDevices -and $deviceIndex -ge 0 -and $deviceIndex -lt $script:SessionDevices.Count) {
+            $actualDeviceId = $script:SessionDevices[$deviceIndex].id
+            $deviceName = $script:SessionDevices[$deviceIndex].name
+            Write-Host "🎯 Transferring to device #$DeviceId ($deviceName)..." -ForegroundColor Cyan
+        } else {
+            Write-Host "❌ Invalid device number. Use 'devices' to see available devices." -ForegroundColor Red
+            return
+        }
+    }
+    
+    try {
+        $body = @{ device_ids = @($actualDeviceId) }
+        Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $body | Out-Null
+        Write-Host "📱 Playback transferred successfully" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not transfer playback" -ForegroundColor Red
+        Write-Host "Make sure the device is online and available" -ForegroundColor Gray
+    }
+}
+
+function queue {
+    <#
+    .SYNOPSIS
+    Add track to playback queue
+    .PARAMETER TrackReference
+    Track number (from search) or Spotify track URI
+    .EXAMPLE
+    queue 1
+    Add track #1 from search results to queue
+    .EXAMPLE
+    queue spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+    Add track to queue by URI
+    #>
+    param([string]$TrackReference)
+    
+    if ([string]::IsNullOrWhiteSpace($TrackReference)) {
+        Write-Host "Usage: queue <track_number_or_uri>" -ForegroundColor Yellow
+        Write-Host "Use 'search' command to find tracks first" -ForegroundColor Gray
+        return
+    }
+    
+    $trackUri = $TrackReference
+    
+    # Check if it's a number (track index from search)
+    if ($TrackReference -match '^\d+$') {
+        $trackIndex = [int]$TrackReference - 1
+        if ($script:SessionTracks -and $trackIndex -ge 0 -and $trackIndex -lt $script:SessionTracks.Count) {
+            $trackUri = $script:SessionTracks[$trackIndex].uri
+            $trackName = $script:SessionTracks[$trackIndex].name
+            $artists = ($script:SessionTracks[$trackIndex].artists | ForEach-Object { $_.name }) -join ", "
+            Write-Host "🎯 Adding track #$TrackReference ($trackName by $artists) to queue..." -ForegroundColor Cyan
+        } else {
+            Write-Host "❌ Invalid track number. Use 'search' to find tracks first." -ForegroundColor Red
+            return
+        }
+    }
+    
+    # Ensure it's a valid Spotify URI
+    if (-not $trackUri.StartsWith("spotify:track:")) {
+        Write-Host "❌ Invalid track URI. Must start with 'spotify:track:'" -ForegroundColor Red
+        return
+    }
+    
+    try {
+        $query = @{ uri = $trackUri }
+        Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query $query | Out-Null
+        Write-Host "➕ Track added to queue" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not add track to queue" -ForegroundColor Red
+    }
+}
+
+function playlists {
+    <#
+    .SYNOPSIS
+    Show user's playlists
+    .EXAMPLE
+    playlists
+    Show your playlists
+    #>
+    try {
+        $playlistsResponse = Invoke-SpotifyApi -Method GET -Path "/me/playlists" -Query @{ limit = 20 }
+        
+        if (-not $playlistsResponse -or -not $playlistsResponse.items) {
+            Write-Host "No playlists found" -ForegroundColor Yellow
+            return
+        }
+        
+        Write-Host "📚 Your Playlists:" -ForegroundColor Cyan
+        Write-Host ""
+        
+        $i = 1
+        foreach ($playlist in $playlistsResponse.items) {
+            $trackCount = $playlist.tracks.total
+            $owner = $playlist.owner.display_name
+            $isOwn = $playlist.owner.id -eq $playlistsResponse.items[0].owner.id
+            $ownerText = if ($isOwn) { "You" } else { $owner }
+            
+            Write-Host "$i. $($playlist.name)" -ForegroundColor White
+            Write-Host "   $trackCount tracks • by $ownerText" -ForegroundColor Gray
+            Write-Host "   URI: $($playlist.uri)" -ForegroundColor Gray
+            Write-Host ""
+            $i++
+        }
+    } catch {
+        Write-Host "❌ Could not get playlists" -ForegroundColor Red
+    }
+}
+
+function liked {
+    <#
+    .SYNOPSIS
+    Show liked/saved tracks
+    .EXAMPLE
+    liked
+    Show your liked songs
+    #>
+    try {
+        $likedResponse = Invoke-SpotifyApi -Method GET -Path "/me/tracks" -Query @{ limit = 20 }
+        
+        if (-not $likedResponse -or -not $likedResponse.items) {
+            Write-Host "No liked songs found" -ForegroundColor Yellow
+            return
+        }
+        
+        Write-Host "❤️ Your Liked Songs:" -ForegroundColor Cyan
+        Write-Host ""
+        
+        $i = 1
+        foreach ($item in $likedResponse.items) {
+            $track = $item.track
+            $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+            $addedDate = [DateTime]::Parse($item.added_at).ToString("yyyy-MM-dd")
+            
+            Write-Host "$i. $($track.name)" -ForegroundColor White
+            Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
+            Write-Host "   Added: $addedDate • URI: $($track.uri)" -ForegroundColor Gray
+            Write-Host ""
+            $i++
+        }
+    } catch {
+        Write-Host "❌ Could not get liked songs" -ForegroundColor Red
+    }
+}
+
+function recent {
+    <#
+    .SYNOPSIS
+    Show recently played tracks
+    .EXAMPLE
+    recent
+    Show recently played tracks
+    #>
+    try {
+        $recentResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/recently-played" -Query @{ limit = 20 }
+        
+        if (-not $recentResponse -or -not $recentResponse.items) {
+            Write-Host "No recent tracks found" -ForegroundColor Yellow
+            return
+        }
+        
+        Write-Host "🕒 Recently Played:" -ForegroundColor Cyan
+        Write-Host ""
+        
+        $i = 1
+        foreach ($item in $recentResponse.items) {
+            $track = $item.track
+            $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+            $playedDate = [DateTime]::Parse($item.played_at).ToString("yyyy-MM-dd HH:mm")
+            
+            Write-Host "$i. $($track.name)" -ForegroundColor White
+            Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
+            Write-Host "   Played: $playedDate • URI: $($track.uri)" -ForegroundColor Gray
+            Write-Host ""
+            $i++
+        }
+    } catch {
+        Write-Host "❌ Could not get recent tracks" -ForegroundColor Red
+    }
+}
+
+function save-track {
+    <#
+    .SYNOPSIS
+    Save current track to library
+    .EXAMPLE
+    save-track
+    Save the currently playing track
+    #>
+    try {
+        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+        if (-not $currentTrack -or -not $currentTrack.item) {
+            Write-Host "❌ No track currently playing" -ForegroundColor Red
+            return
+        }
+        
+        $trackId = $currentTrack.item.id
+        $query = @{ ids = $trackId }
+        Invoke-SpotifyApi -Method PUT -Path "/me/tracks" -Query $query | Out-Null
+        
+        Write-Host "❤️ Saved '$($currentTrack.item.name)' to your library" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Could not save track" -ForegroundColor Red
+    }
+}
+
+function unsave-track {
+    <#
+    .SYNOPSIS
+    Remove current track from library
+    .EXAMPLE
+    unsave-track
+    Remove the currently playing track from library
+    #>
+    try {
+        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+        if (-not $currentTrack -or -not $currentTrack.item) {
+            Write-Host "❌ No track currently playing" -ForegroundColor Red
+            return
+        }
+        
+        $trackId = $currentTrack.item.id
+        $query = @{ ids = $trackId }
+        Invoke-SpotifyApi -Method DELETE -Path "/me/tracks" -Query $query | Out-Null
+        
+        Write-Host "💔 Removed '$($currentTrack.item.name)' from your library" -ForegroundColor Yellow
+    } catch {
+        Write-Host "❌ Could not remove track" -ForegroundColor Red
+    }
+}
+
+function Test-AliasConflicts {
+    <#
+    .SYNOPSIS
+    Test for alias conflicts with PowerShell built-ins
+    .DESCRIPTION
+    Checks if any Spotify aliases conflict with existing PowerShell commands
+    .EXAMPLE
+    Test-AliasConflicts
+    Check for conflicts and show recommendations
+    #>
+    Write-Host "🔍 Checking for alias conflicts..." -ForegroundColor Cyan
+    
+    $config = Get-SpotifyConfig
+    $conflicts = @()
+    
+    foreach ($alias in $config.Aliases.GetEnumerator()) {
+        $existingCommand = Get-Command -Name $alias.Key -ErrorAction SilentlyContinue
+        if ($existingCommand -and $existingCommand.CommandType -in @('Cmdlet', 'Alias') -and $existingCommand.Source -eq '') {
+            $conflicts += @{
+                Alias = $alias.Key
+                Target = $alias.Value
+                Conflicts = $existingCommand.Name
+                Type = $existingCommand.CommandType
+            }
+        }
+    }
+    
+    if ($conflicts.Count -eq 0) {
+        Write-Host "✅ No conflicts found!" -ForegroundColor Green
+        return
+    }
+    
+    Write-Host "⚠️ Found $($conflicts.Count) conflict(s):" -ForegroundColor Yellow
+    Write-Host ""
+    
+    foreach ($conflict in $conflicts) {
+        Write-Host "  ❌ '$($conflict.Alias)' conflicts with PowerShell $($conflict.Type): $($conflict.Conflicts)" -ForegroundColor Red
+        Write-Host "     Intended target: $($conflict.Target)" -ForegroundColor Gray
+        
+        # Suggest alternatives
+        $alternatives = @("s$($conflict.Alias)", "$($conflict.Alias)s", "my$($conflict.Alias)")
+        Write-Host "     Suggested alternatives: $($alternatives -join ', ')" -ForegroundColor Green
+        Write-Host ""
+    }
+    
+    Write-Host "💡 To fix conflicts:" -ForegroundColor Cyan
+    Write-Host "1. Remove conflicting alias: Remove-SpotifyAlias -Alias 'sp'" -ForegroundColor White
+    Write-Host "2. Create new alias: Set-SpotifyAlias -Alias 'spo' -Command 'Show-SpotifyTrack'" -ForegroundColor White
+    Write-Host "3. Or use the full command names instead" -ForegroundColor White
+}
+
+function Test-SpotifyAuth {
+    <#
+    .SYNOPSIS
+    Test Spotify authentication status
+    .DESCRIPTION
+    Checks if you're properly authenticated with Spotify and shows status
+    .EXAMPLE
+    Test-SpotifyAuth
+    Check authentication status
+    #>
+    Write-Host "🔍 Checking Spotify authentication..." -ForegroundColor Cyan
+    
+    # Check if environment variables are set
+    if (-not $env:SPOTIFY_CLIENT_ID -or -not $env:SPOTIFY_CLIENT_SECRET) {
+        Write-Host "❌ Spotify credentials not found in environment variables" -ForegroundColor Red
+        Write-Host "💡 Make sure .env file exists with SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET" -ForegroundColor Yellow
+        return $false
+    }
+    
+    # Check if tokens exist
+    $tokens = Get-StoredTokens
+    if (-not $tokens.access_token) {
+        Write-Host "❌ No access token found" -ForegroundColor Red
+        Write-Host "💡 Run .\spotifyCLI.ps1 to authenticate" -ForegroundColor Yellow
+        return $false
+    }
+    
+    # Test API call
+    try {
+        $profile = Invoke-SpotifyApi -Method GET -Path "/me"
+        if ($profile) {
+            Write-Host "✅ Authentication successful!" -ForegroundColor Green
+            Write-Host "👤 Logged in as: $($profile.display_name)" -ForegroundColor Cyan
+            Write-Host "📧 Email: $($profile.email)" -ForegroundColor Gray
+            Write-Host "🎵 Subscription: $($profile.product)" -ForegroundColor Gray
+            return $true
+        } else {
+            Write-Host "❌ Authentication failed" -ForegroundColor Red
+            return $false
+        }
+    } catch {
+        Write-Host "❌ Authentication test failed" -ForegroundColor Red
+        return $false
+    }
+}
 #endregion
 
-# Export all functions for global availability
-Export-ModuleMember -Function @(
-    # Core playback commands
-    'spotify', 'next', 'pause', 'play', 'previous',
+# Alias management functions
+function Initialize-SpotifyAliases {
+    <#
+    .SYNOPSIS
+    Initialize default Spotify command aliases as wrapper functions
+    #>
+    $config = Get-SpotifyConfig
     
-    # Enhanced playback controls
-    'Invoke-SeekCommand', 'Invoke-VolumeCommand', 'Invoke-ShuffleCommand', 'Invoke-RepeatCommand',
+    # Default aliases if not configured
+    if (-not $config.Aliases) {
+        $config.Aliases = @{
+            'sp' = 'Show-SpotifyTrack'
+            'spotify' = 'Show-SpotifyTrack'
+            'vol' = 'volume'
+            'sh' = 'shuffle'
+            'rep' = 'repeat'
+            'tr' = 'transfer'
+            'q' = 'queue'
+            'pl' = 'playlists'
+        }
+        Set-SpotifyConfig -Config $config | Out-Null
+    }
+    
+    # Create wrapper functions for each alias
+    foreach ($alias in $config.Aliases.GetEnumerator()) {
+        $aliasName = $alias.Key
+        $targetCommand = $alias.Value
+        
+        # Check for conflicts with built-in PowerShell commands
+        $existingCommand = Get-Command -Name $aliasName -ErrorAction SilentlyContinue
+        if ($existingCommand -and $existingCommand.CommandType -in @('Cmdlet', 'Alias') -and $existingCommand.Source -eq '') {
+            Write-Verbose "Skipping alias '$aliasName' - conflicts with built-in PowerShell command"
+            continue
+        }
+        
+        # Always recreate the function to ensure it's current
+        try {
+            # Create wrapper function dynamically with higher precedence
+            $functionBody = @"
+function global:$aliasName {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]`$Arguments)
+    
+    # Call the target Spotify command directly
+    try {
+        `$command = Get-Command -Name '$targetCommand' -CommandType Function -Module SpotifyModule -ErrorAction Stop
+        if (`$Arguments) {
+            & `$command @Arguments
+        } else {
+            & `$command
+        }
+    } catch {
+        Write-Host "❌ Error calling Spotify command '$targetCommand': `$(`$_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Try running: Import-Module SpotifyModule -Force" -ForegroundColor Yellow
+    }
+}
+"@
+            
+            # Execute the function definition
+            Invoke-Expression $functionBody
+            Write-Verbose "Created wrapper function: $aliasName -> $targetCommand"
+            
+        } catch {
+            Write-Verbose "Failed to create wrapper function $aliasName`: $($_.Exception.Message)"
+        }
+    }
+}
+
+function Set-SpotifyAlias {
+    <#
+    .SYNOPSIS
+    Set a custom alias for a Spotify command
+    .PARAMETER Alias
+    The alias name to create
+    .PARAMETER Command
+    The command the alias should point to
+    .EXAMPLE
+    Set-SpotifyAlias -Alias 'music' -Command 'Show-SpotifyTrack'
+    Create alias 'music' for Show-SpotifyTrack
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$Alias,
+        [Parameter(Mandatory)]
+        [string]$Command
+    )
+    
+    $config = Get-SpotifyConfig
+    if (-not $config.Aliases) {
+        $config.Aliases = @{}
+    }
+    
+    # Validate command exists
+    $validCommands = @(
+        'Show-SpotifyTrack', 'spotify-now', 'play', 'pause', 'next', 'previous',
+        'volume', 'seek', 'shuffle', 'repeat', 'devices', 'transfer',
+        'search', 'queue', 'playlists', 'liked', 'recent', 'save-track', 'unsave-track',
+        'Get-SpotifyConfig', 'Set-SpotifyConfig', 'Get-SpotifyHelp', 'notifications', 'Test-SpotifyAuth'
+    )
+    
+    if ($Command -notin $validCommands) {
+        Write-Host "❌ Invalid command: $Command" -ForegroundColor Red
+        Write-Host "Valid commands: $($validCommands -join ', ')" -ForegroundColor Gray
+        return
+    }
+    
+    # Add to config
+    $config.Aliases[$Alias] = $Command
+    
+    if (Set-SpotifyConfig -Config $config) {
+        # Create wrapper function immediately
+        try {
+            $functionBody = @"
+function global:$Alias {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]`$Arguments)
+    
+    # Force use of the Spotify module command, not external applications
+    `$command = Get-Command -Name '$Command' -CommandType Function -ErrorAction SilentlyContinue
+    if (`$command) {
+        if (`$Arguments) {
+            & `$command @Arguments
+        } else {
+            & `$command
+        }
+    } else {
+        Write-Host "❌ Spotify command '$Command' not found" -ForegroundColor Red
+    }
+}
+"@
+            Invoke-Expression $functionBody
+            Write-Host "✅ Created alias '$Alias' → '$Command'" -ForegroundColor Green
+        } catch {
+            Write-Host "⚠️ Alias saved to config but couldn't create immediately: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "Restart PowerShell or reimport the module to activate" -ForegroundColor Gray
+        }
+    } else {
+        Write-Host "❌ Failed to save alias configuration" -ForegroundColor Red
+    }
+}
+
+function Remove-SpotifyAlias {
+    <#
+    .SYNOPSIS
+    Remove a custom Spotify alias
+    .PARAMETER Alias
+    The alias name to remove
+    .EXAMPLE
+    Remove-SpotifyAlias -Alias 'music'
+    Remove the 'music' alias
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$Alias
+    )
+    
+    $config = Get-SpotifyConfig
+    if (-not $config.Aliases -or -not $config.Aliases.ContainsKey($Alias)) {
+        Write-Host "❌ Alias '$Alias' not found" -ForegroundColor Red
+        return
+    }
+    
+    # Remove from config
+    $config.Aliases.Remove($Alias)
+    
+    if (Set-SpotifyConfig -Config $config) {
+        # Remove the wrapper function
+        try {
+            Remove-Item -Path "Function:\$Alias" -Force -ErrorAction SilentlyContinue
+            Write-Host "✅ Removed alias '$Alias'" -ForegroundColor Green
+        } catch {
+            Write-Host "⚠️ Alias removed from config but couldn't remove immediately" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "❌ Failed to save alias configuration" -ForegroundColor Red
+    }
+}
+
+function Get-SpotifyAliases {
+    <#
+    .SYNOPSIS
+    Show all current Spotify aliases
+    .EXAMPLE
+    Get-SpotifyAliases
+    List all configured aliases
+    #>
+    $config = Get-SpotifyConfig
+    
+    if (-not $config.Aliases -or $config.Aliases.Count -eq 0) {
+        Write-Host "No aliases configured" -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host "🔗 Current Spotify Aliases:" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $config.Aliases.GetEnumerator() | Sort-Object Key | ForEach-Object {
+        $aliasCommand = Get-Command -Name $_.Key -ErrorAction SilentlyContinue
+        
+        if ($aliasCommand) {
+            if ($aliasCommand.CommandType -eq 'Function' -and $aliasCommand.Source -eq 'SpotifyModule') {
+                $status = "✅"
+                $note = ""
+            } elseif ($aliasCommand.CommandType -in @('Cmdlet', 'Alias') -and $aliasCommand.Source -eq '') {
+                $status = "⚠️"
+                $note = " (conflicts with PowerShell built-in)"
+            } else {
+                $status = "❓"
+                $note = " (unknown conflict)"
+            }
+        } else {
+            $status = "❌"
+            $note = " (not found)"
+        }
+        
+        Write-Host "  $status $($_.Key) → $($_.Value)$note" -ForegroundColor White
+    }
+    
+    Write-Host ""
+    Write-Host "Legend:" -ForegroundColor Gray
+    Write-Host "  ✅ Working correctly" -ForegroundColor Green
+    Write-Host "  ⚠️ Conflicts with PowerShell built-in" -ForegroundColor Yellow
+    Write-Host "  ❌ Not available" -ForegroundColor Red
+}
+
+# Create default wrapper functions directly
+function sp {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        Show-SpotifyTrack @Arguments
+    } else {
+        Show-SpotifyTrack
+    }
+}
+
+function spotify {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        Show-SpotifyTrack @Arguments
+    } else {
+        Show-SpotifyTrack
+    }
+}
+
+function vol {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        volume @Arguments
+    } else {
+        volume
+    }
+}
+
+function sh {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        shuffle @Arguments
+    } else {
+        shuffle
+    }
+}
+
+function rep {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        repeat @Arguments
+    } else {
+        repeat
+    }
+}
+
+function tr {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        transfer @Arguments
+    } else {
+        transfer
+    }
+}
+
+function q {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        queue @Arguments
+    } else {
+        queue
+    }
+}
+
+function pl {
+    [CmdletBinding()]
+    param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    if ($Arguments) {
+        playlists @Arguments
+    } else {
+        playlists
+    }
+}
+
+# Initialize custom aliases when module loads
+Initialize-SpotifyAliases
+
+# Export functions and aliases
+Export-ModuleMember -Function @(
+    # Core playback
+    'Show-SpotifyTrack', 'spotify-now', 'play', 'pause', 'next', 'previous',
+    
+    # Advanced controls
+    'volume', 'seek', 'shuffle', 'repeat',
     
     # Device management
     'devices', 'transfer',
     
-    # Search and playback
-    'search', 'queue', 'play-track', 'play-album', 'play-playlist',
+    # Search and queue
+    'search', 'queue',
     
     # Library management
-    'playlists', 'liked', 'save-track', 'unsave-track', 'recent',
-    
-    # System commands
-    'history', 'logs', 'auto-refresh', 'notifications',
+    'playlists', 'liked', 'recent', 'save-track', 'unsave-track',
     
     # Configuration and help
-    'Get-SpotifyConfig', 'Set-SpotifyConfig', 'Invoke-ConfigCommand', 'Invoke-HelpCommand',
+    'Get-SpotifyConfig', 'Set-SpotifyConfig', 'Get-SpotifyHelp', 'spotify-help',
     
-    # Error handling and utilities
-    'Show-UnknownCommand', 'Handle-SpotifyError', 'Test-SpotifyConnection', 'Test-NetworkConnectivity', 'Test-SpotifyConfigValue',
+    # Authentication
+    'Test-SpotifyAuth',
     
-    # Logging functions
-    'Write-DebugLog', 'Write-InfoLog', 'Write-WarningLog', 'Write-ErrorLog', 'Get-LogEntries', 'Initialize-LoggingSystem',
+    # Alias management
+    'Set-SpotifyAlias', 'Remove-SpotifyAlias', 'Get-SpotifyAliases', 'Test-AliasConflicts',
     
-    # History functions
-    'Add-PlaybackHistoryEntry', 'Get-PlaybackHistory', 'Clear-PlaybackHistory',
+    # Notifications
+    'notifications', 'Show-TrackNotification', 'Test-NotificationSupport',
     
-    # Notification functions
-    'Show-TrackNotification', 'Send-TrackChangeNotification', 'Initialize-NotificationSystem', 'Test-NotificationSupport', 'Update-TrackNotification'
+    # Default aliases as functions
+    'sp', 'spotify', 'vol', 'sh', 'rep', 'tr', 'q', 'pl'
 )

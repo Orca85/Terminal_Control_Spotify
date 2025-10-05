@@ -335,11 +335,11 @@ When seeking help, provide:
 Start with these low-impact commands:
 
 ```powershell
-/help                    # Show help
-/spotify                 # Show current track
-/devices                 # List devices
+Get-SpotifyHelp          # Show help
+Show-SpotifyTrack        # Show current track
+devices                  # List devices
 Get-SpotifyConfig        # View configuration
-notifications test       # Test notifications
+search "test"            # Test search functionality
 ```
 
 ### Recovery Commands

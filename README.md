@@ -1,7 +1,7 @@
 # Spotify CLI for PowerShell - Enhanced Edition
 
-A comprehensive command-line interface for controlling Spotify playback directly from PowerShell.  
-This enhanced version provides complete control over your Spotify experience with advanced playback controls, device management, search capabilities, playlist management, and visual enhancements.
+A streamlined command-line interface for controlling Spotify playback directly from PowerShell.  
+This version provides essential Spotify control with core playback features, device management, search capabilities, and visual enhancements - optimized for reliability and ease of use.
 
 ---
 
@@ -11,7 +11,7 @@ This enhanced version provides complete control over your Spotify experience wit
 
 - **Current Track Display**: Rich track information with progress bars and color coding
 - **Basic Controls**: Play, pause, next, previous track
-- **Advanced Controls**: Seek, volume control, shuffle, repeat modes
+- **Advanced Controls**: Volume, seek, shuffle, repeat modes
 - **Compact Mode**: Single-line track display for minimal output
 
 ### 📱 Device Management
@@ -24,12 +24,11 @@ This enhanced version provides complete control over your Spotify experience wit
 
 - **Music Search**: Search for tracks, artists, albums, and playlists
 - **Queue Management**: Add tracks to your playback queue
-- **Direct Playback**: Play specific tracks, albums, or playlists instantly
 
 ### 📚 Library Management
 
-- **Playlist Access**: Browse and play your playlists
-- **Liked Songs**: View and manage your saved tracks
+- **Playlist Access**: Browse your playlists
+- **Liked Songs**: View your saved tracks
 - **Recently Played**: See your listening history
 - **Save/Unsave**: Add or remove tracks from your library
 
@@ -43,10 +42,8 @@ This enhanced version provides complete control over your Spotify experience wit
 ### ⚙️ System Features
 
 - **Configuration Management**: Persistent settings and preferences
-- **Logging System**: Optional debug logging with rotation
-- **Playback History**: Track your listening history locally
 - **Windows Notifications**: Toast notifications for track changes
-- **Auto-refresh**: Automatic display updates at configurable intervals
+- **Command Aliases**: Short aliases for frequently used commands
 - **Comprehensive Help**: Built-in help system with detailed command documentation
 
 ### 🌐 Global Commands
@@ -120,63 +117,59 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 Use commands anywhere in PowerShell:
 
-#### 🎵 Playback Controls
+#### 🎵 Core Playback Controls
 
-| Command           | Action                           | Example           |
-| ----------------- | -------------------------------- | ----------------- |
-| `spotify`         | Show current track (detailed)    | `spotify`         |
-| `spotify compact` | Show current track (single line) | `spotify compact` |
-| `play`            | Resume playback                  | `play`            |
-| `pause`           | Pause playback                   | `pause`           |
-| `next`            | Skip to next track               | `next`            |
-| `previous`        | Skip to previous track           | `previous`        |
+| Command             | Action                        | Example             | Alias           |
+| ------------------- | ----------------------------- | ------------------- | --------------- |
+| `Show-SpotifyTrack` | Show current track (detailed) | `Show-SpotifyTrack` | `spotify`, `sp` |
+| `spotify-now`       | Show current track (compact)  | `spotify-now`       | -               |
+| `play`              | Resume playback               | `play`              | -               |
+| `pause`             | Pause playback                | `pause`             | -               |
+| `next`              | Skip to next track            | `next`              | -               |
+| `previous`          | Skip to previous track        | `previous`          | -               |
 
 #### 🎛️ Advanced Controls
 
-| Command                 | Action                | Example                               |
-| ----------------------- | --------------------- | ------------------------------------- |
-| `Invoke-SeekCommand`    | Seek forward/backward | `Invoke-SeekCommand 30` (forward 30s) |
-| `Invoke-VolumeCommand`  | Set volume (0-100)    | `Invoke-VolumeCommand 75`             |
-| `Invoke-ShuffleCommand` | Toggle shuffle        | `Invoke-ShuffleCommand on`            |
-| `Invoke-RepeatCommand`  | Set repeat mode       | `Invoke-RepeatCommand track`          |
+| Command   | Action                | Example        | Alias |
+| --------- | --------------------- | -------------- | ----- |
+| `volume`  | Set volume (0-100)    | `volume 75`    | `vol` |
+| `seek`    | Seek forward/backward | `seek 30`      | -     |
+| `shuffle` | Control shuffle       | `shuffle on`   | `sh`  |
+| `repeat`  | Control repeat mode   | `repeat track` | `rep` |
 
 #### 📱 Device Management
 
-| Command    | Action                 | Example              |
-| ---------- | ---------------------- | -------------------- |
-| `devices`  | List available devices | `devices`            |
-| `transfer` | Switch to device       | `transfer device_id` |
+| Command    | Action                 | Example              | Alias |
+| ---------- | ---------------------- | -------------------- | ----- |
+| `devices`  | List available devices | `devices`            | -     |
+| `transfer` | Switch to device       | `transfer device_id` | `tr`  |
 
-#### 🔍 Search & Playback
+#### 🔍 Search & Queue
 
-| Command         | Action                 | Example                              |
-| --------------- | ---------------------- | ------------------------------------ |
-| `search`        | Search for music       | `search "bohemian rhapsody"`         |
-| `queue`         | Add to queue           | `queue spotify:track:...`            |
-| `play-track`    | Play specific track    | `play-track spotify:track:...`       |
-| `play-album`    | Play specific album    | `play-album spotify:album:...`       |
-| `play-playlist` | Play specific playlist | `play-playlist spotify:playlist:...` |
+| Command  | Action           | Example                      | Alias |
+| -------- | ---------------- | ---------------------------- | ----- |
+| `search` | Search for music | `search "bohemian rhapsody"` | -     |
+| `queue`  | Add to queue     | `queue spotify:track:...`    | `q`   |
 
 #### 📚 Library Management
 
-| Command        | Action               | Example        |
-| -------------- | -------------------- | -------------- |
-| `playlists`    | Show your playlists  | `playlists`    |
-| `liked`        | Show liked songs     | `liked`        |
-| `recent`       | Show recently played | `recent`       |
-| `save-track`   | Save current track   | `save-track`   |
-| `unsave-track` | Remove current track | `unsave-track` |
+| Command        | Action               | Example        | Alias |
+| -------------- | -------------------- | -------------- | ----- |
+| `playlists`    | Show your playlists  | `playlists`    | `pl`  |
+| `liked`        | Show liked songs     | `liked`        | -     |
+| `recent`       | Show recently played | `recent`       | -     |
+| `save-track`   | Save current track   | `save-track`   | -     |
+| `unsave-track` | Remove current track | `unsave-track` | -     |
 
-#### ⚙️ System Commands
+#### ⚙️ Configuration & Help
 
-| Command             | Action                | Example                                  |
-| ------------------- | --------------------- | ---------------------------------------- |
-| `Get-SpotifyConfig` | View configuration    | `Get-SpotifyConfig`                      |
-| `Set-SpotifyConfig` | Modify settings       | `Set-SpotifyConfig @{CompactMode=$true}` |
-| `history`           | Show playback history | `history`                                |
-| `logs`              | View debug logs       | `logs`                                   |
-| `notifications`     | Control notifications | `notifications on`                       |
-| `auto-refresh`      | Auto-update display   | `auto-refresh 5`                         |
+| Command             | Action                  | Example                                  | Alias  |
+| ------------------- | ----------------------- | ---------------------------------------- | ------ |
+| `Get-SpotifyConfig` | View configuration      | `Get-SpotifyConfig`                      | -      |
+| `Set-SpotifyConfig` | Modify settings         | `Set-SpotifyConfig @{CompactMode=$true}` | -      |
+| `notifications`     | Control notifications   | `notifications on`                       | -      |
+| `Get-SpotifyHelp`   | Show comprehensive help | `Get-SpotifyHelp`                        | `help` |
+| `spotify-help`      | Short alias for help    | `spotify-help`                           | -      |
 
 ### Script Mode (Interactive CLI)
 
@@ -423,6 +416,13 @@ Set-SpotifyConfig @{
         Artist = "Cyan"
     }
 }
+
+# Create custom aliases
+Set-SpotifyAlias -Alias 'music' -Command 'Show-SpotifyTrack'
+Set-SpotifyAlias -Alias 'vol' -Command 'volume'
+
+# View all aliases
+Get-SpotifyAliases
 
 # Set auto-refresh for 5 seconds
 Set-SpotifyConfig @{AutoRefreshInterval = 5}
