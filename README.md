@@ -1,20 +1,64 @@
-# Spotify CLI for PowerShell
+# Spotify CLI for PowerShell - Enhanced Edition
 
-A simple command-line interface for controlling Spotify playback directly from PowerShell.  
-This script uses the **Spotify Web API** to authenticate with your account and allows you to run commands like `spotify`, `next`, `pause`, and `play` to control playback and display track information.
+A comprehensive command-line interface for controlling Spotify playback directly from PowerShell.  
+This enhanced version provides complete control over your Spotify experience with advanced playback controls, device management, search capabilities, playlist management, and visual enhancements.
 
 ---
 
 ## ✨ Features
-- Authenticate with your Spotify account via OAuth2
-- Show the currently playing track (title, artist, album, progress)
-- Control playback: play, pause, skip to next/previous track
-- **Global commands** - use commands anywhere in PowerShell
+
+### 🎵 Core Playback
+
+- **Current Track Display**: Rich track information with progress bars and color coding
+- **Basic Controls**: Play, pause, next, previous track
+- **Advanced Controls**: Seek, volume control, shuffle, repeat modes
+- **Compact Mode**: Single-line track display for minimal output
+
+### 📱 Device Management
+
+- **Device Discovery**: List all available Spotify Connect devices
+- **Device Transfer**: Switch playback between devices seamlessly
+- **Device Status**: See which device is currently active
+
+### 🔍 Search & Discovery
+
+- **Music Search**: Search for tracks, artists, albums, and playlists
+- **Queue Management**: Add tracks to your playback queue
+- **Direct Playback**: Play specific tracks, albums, or playlists instantly
+
+### 📚 Library Management
+
+- **Playlist Access**: Browse and play your playlists
+- **Liked Songs**: View and manage your saved tracks
+- **Recently Played**: See your listening history
+- **Save/Unsave**: Add or remove tracks from your library
+
+### 🎨 Visual Enhancements
+
+- **Progress Bars**: ASCII progress indicators for track position
+- **Color Coding**: Different colors for playing/paused states and content types
+- **Rich Display**: Detailed track information with emojis and formatting
+- **Customizable Colors**: Configure display colors to your preference
+
+### ⚙️ System Features
+
+- **Configuration Management**: Persistent settings and preferences
+- **Logging System**: Optional debug logging with rotation
+- **Playback History**: Track your listening history locally
+- **Windows Notifications**: Toast notifications for track changes
+- **Auto-refresh**: Automatic display updates at configurable intervals
+- **Comprehensive Help**: Built-in help system with detailed command documentation
+
+### 🌐 Global Commands
+
+- Use commands anywhere in PowerShell after installation
 - Works on Windows PowerShell 5.1 and PowerShell 7+
+- Backward compatible with existing workflows
 
 ---
 
 ## ⚙️ Requirements
+
 - **Spotify Premium account** (required for playback control via API)
 - **Spotify Developer App** (free to create)
 - PowerShell 5.1+ (Windows) or PowerShell 7+ (cross-platform)
@@ -24,39 +68,46 @@ This script uses the **Spotify Web API** to authenticate with your account and a
 ## 🚀 Setup
 
 ### 1. Create a Spotify Developer App
+
 1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 2. Click **Create App**.
 3. Fill in:
    - **App name**: e.g. `SpotifyCLI`
-   - **Redirect URI**: must match the script:  
+   - **Redirect URI**: must match the script:
      ```
      http://127.0.0.1:8888/callback
      ```
 4. Save the app and copy your **Client ID** and **Client Secret**.
 
 ### 2. Configure Environment Variables
+
 Create a `.env` file in the project folder:
+
 ```
 SPOTIFY_CLIENT_ID=your_client_id_here
 SPOTIFY_CLIENT_SECRET=your_client_secret_here
 ```
 
 ### 3. Install Global Commands (Recommended)
+
 ```powershell
 ./Install-SpotifyCommands.ps1
 ```
 
 Then restart PowerShell or run:
+
 ```powershell
 . $PROFILE
 ```
 
 ### 4. Alternative: Run as Regular Script
+
 ```powershell
 ./spotifyCLI.ps1
 ```
 
 If you get an execution policy error, run:
+
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
@@ -66,45 +117,140 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ## 🎮 Usage
 
 ### Global Commands (after installation)
+
 Use commands anywhere in PowerShell:
 
-| Command     | Action                                |
-|-------------|---------------------------------------|
-| `spotify`   | Show currently playing track          |
-| `next`      | Skip to next track                    |
-| `previous`  | Skip to previous track                |
-| `pause`     | Pause playback                        |
-| `play`      | Resume playback                       |
+#### 🎵 Playback Controls
 
-### Script Mode
-If you run the script directly, you'll get a prompt (`>`):
+| Command           | Action                           | Example           |
+| ----------------- | -------------------------------- | ----------------- |
+| `spotify`         | Show current track (detailed)    | `spotify`         |
+| `spotify compact` | Show current track (single line) | `spotify compact` |
+| `play`            | Resume playback                  | `play`            |
+| `pause`           | Pause playback                   | `pause`           |
+| `next`            | Skip to next track               | `next`            |
+| `previous`        | Skip to previous track           | `previous`        |
 
-| Command     | Action                                |
-|-------------|---------------------------------------|
-| `/spotify`  | Show currently playing track          |
-| `/next`     | Skip to next track                    |
-| `/pause`    | Pause playback                        |
-| `/play`     | Resume playback                       |
-| `/quit`     | Exit the script                       |
+#### 🎛️ Advanced Controls
+
+| Command                 | Action                | Example                               |
+| ----------------------- | --------------------- | ------------------------------------- |
+| `Invoke-SeekCommand`    | Seek forward/backward | `Invoke-SeekCommand 30` (forward 30s) |
+| `Invoke-VolumeCommand`  | Set volume (0-100)    | `Invoke-VolumeCommand 75`             |
+| `Invoke-ShuffleCommand` | Toggle shuffle        | `Invoke-ShuffleCommand on`            |
+| `Invoke-RepeatCommand`  | Set repeat mode       | `Invoke-RepeatCommand track`          |
+
+#### 📱 Device Management
+
+| Command    | Action                 | Example              |
+| ---------- | ---------------------- | -------------------- |
+| `devices`  | List available devices | `devices`            |
+| `transfer` | Switch to device       | `transfer device_id` |
+
+#### 🔍 Search & Playback
+
+| Command         | Action                 | Example                              |
+| --------------- | ---------------------- | ------------------------------------ |
+| `search`        | Search for music       | `search "bohemian rhapsody"`         |
+| `queue`         | Add to queue           | `queue spotify:track:...`            |
+| `play-track`    | Play specific track    | `play-track spotify:track:...`       |
+| `play-album`    | Play specific album    | `play-album spotify:album:...`       |
+| `play-playlist` | Play specific playlist | `play-playlist spotify:playlist:...` |
+
+#### 📚 Library Management
+
+| Command        | Action               | Example        |
+| -------------- | -------------------- | -------------- |
+| `playlists`    | Show your playlists  | `playlists`    |
+| `liked`        | Show liked songs     | `liked`        |
+| `recent`       | Show recently played | `recent`       |
+| `save-track`   | Save current track   | `save-track`   |
+| `unsave-track` | Remove current track | `unsave-track` |
+
+#### ⚙️ System Commands
+
+| Command             | Action                | Example                                  |
+| ------------------- | --------------------- | ---------------------------------------- |
+| `Get-SpotifyConfig` | View configuration    | `Get-SpotifyConfig`                      |
+| `Set-SpotifyConfig` | Modify settings       | `Set-SpotifyConfig @{CompactMode=$true}` |
+| `history`           | Show playback history | `history`                                |
+| `logs`              | View debug logs       | `logs`                                   |
+| `notifications`     | Control notifications | `notifications on`                       |
+| `auto-refresh`      | Auto-update display   | `auto-refresh 5`                         |
+
+### Script Mode (Interactive CLI)
+
+Run `./spotifyCLI.ps1` for an interactive experience with all commands available using `/` prefix:
+
+| Command           | Action                | Example                 |
+| ----------------- | --------------------- | ----------------------- |
+| `/help`           | Show all commands     | `/help`                 |
+| `/help <command>` | Detailed command help | `/help search`          |
+| `/spotify`        | Show current track    | `/spotify`              |
+| `/search <query>` | Search for music      | `/search "the beatles"` |
+| `/devices`        | List devices          | `/devices`              |
+| `/config`         | Manage settings       | `/config`               |
+| `/quit`           | Exit CLI              | `/quit`                 |
 
 ### Examples
+
+#### Basic Usage
+
 ```powershell
 PS C:\> spotify
-🎵 Song Title
-👤 Artist Name
-📀 Album Name
-⏱ 1:23 / 3:45 (playing)
+🎵 Bohemian Rhapsody
+👤 Queen
+📀 A Night at the Opera
+[████████████░░░░░░░░░░░░░░░░░░] 67%
+⏱ 4:02 / 5:55 ▶️ Playing on 💻 Desktop
 
 PS C:\> next
-⏭️ Next track.
+⏭️ Skipped to next track
 
-PS C:\> pause
-⏸️ Paused.
+PS C:\> Invoke-VolumeCommand 80
+🔊 Volume set to 80%
+```
+
+#### Advanced Features
+
+```powershell
+PS C:\> search "pink floyd"
+🔍 Search Results for "pink floyd":
+
+TRACKS:
+1. Comfortably Numb - Pink Floyd (The Wall)
+2. Wish You Were Here - Pink Floyd (Wish You Were Here)
+3. Another Brick in the Wall - Pink Floyd (The Wall)
+
+PS C:\> devices
+📱 Available Devices:
+1. 💻 Desktop (Computer) - Active, Volume: 75%
+2. 📱 iPhone (Smartphone) - Volume: 50%
+3. 🔊 Living Room Speaker (Speaker) - Volume: 80%
+
+PS C:\> notifications on
+🔔 Notifications enabled
+✅ Notification system ready: BurntToast module available
+```
+
+#### Configuration
+
+```powershell
+PS C:\> Get-SpotifyConfig
+PreferredDevice    :
+CompactMode        : False
+NotificationsEnabled : True
+AutoRefreshInterval : 0
+Colors             : @{Playing=Green; Paused=Yellow; Track=Cyan}
+
+PS C:\> Set-SpotifyConfig @{CompactMode=$true; NotificationsEnabled=$true}
+✅ Configuration updated successfully
 ```
 
 ---
 
 ## 📁 Project Structure
+
 ```
 ├── spotifyCLI.ps1              # Main script (interactive mode)
 ├── SpotifyModule.psm1          # PowerShell module for global commands
@@ -116,29 +262,174 @@ PS C:\> pause
 ---
 
 ## 🔐 API Scopes Used
-The script requests the following Spotify API scopes:
-- `user-read-playback-state`
-- `user-modify-playback-state`
-- `user-read-currently-playing`
 
-These are required to read playback information and control playback.
+The enhanced script requests the following Spotify API scopes:
+
+### Core Playback
+
+- `user-read-playback-state` - Read current playback state
+- `user-modify-playback-state` - Control playback (play, pause, seek, volume, etc.)
+- `user-read-currently-playing` - Get currently playing track
+
+### Library & Playlists
+
+- `user-read-private` - Access user profile information
+- `playlist-read-private` - Read private playlists
+- `user-library-read` - Read saved tracks
+- `user-library-modify` - Save/unsave tracks
+- `user-read-recently-played` - Access listening history
+- `user-top-read` - Access top tracks and artists
+
+These scopes enable full functionality including playlist management, library access, and enhanced features.
 
 ---
 
 ## 📝 Notes
-- Tokens are stored locally in `%APPDATA%\SpotifyCLI\tokens.json`
-- You must have an active Spotify Connect device (desktop app, mobile app, or web player) for playback control to work
-- The first time you run the script, a browser will open for authentication
-- Tokens are automatically refreshed when they expire
+
+### Data Storage
+
+- **Tokens**: `%APPDATA%\SpotifyCLI\tokens.json` - OAuth2 access and refresh tokens
+- **Configuration**: `%APPDATA%\SpotifyCLI\config.json` - User preferences and settings
+- **History**: `%APPDATA%\SpotifyCLI\playback-history.json` - Local playback history
+- **Logs**: `%APPDATA%\SpotifyCLI\spotify-cli.log` - Debug logs (when enabled)
+
+### Requirements
+
+- **Spotify Premium**: Required for playback control features (seek, volume, device transfer, etc.)
+- **Active Device**: Must have an active Spotify Connect device for playback control
+- **Internet Connection**: Required for all API operations
+- **PowerShell 5.1+**: Windows PowerShell 5.1 or PowerShell 7+
+
+### Authentication
+
+- First run opens browser for OAuth2 authentication
+- Tokens automatically refresh when expired
+- Re-authentication required if scopes change or tokens are corrupted
 
 ---
 
 ## 🔧 Troubleshooting
-- **"No playback found"**: Start Spotify on a device and play music
-- **"Could not fetch current track"**: Make sure you have Spotify Premium
-- **Authentication errors**: Check that Client ID/Secret are correct and Redirect URI matches
+
+### Common Issues
+
+#### Authentication Problems
+
+- **"Authentication Setup Error"**: Run PowerShell as Administrator
+- **"Could not start local authentication server"**: Check if port 8888 is available
+- **"Authentication state mismatch"**: Security issue, try authentication again
+- **"Token requires additional permissions"**: Enhanced features need more scopes, re-authenticate
+
+#### Playback Issues
+
+- **"No Active Device"**:
+  - Open Spotify on any device (phone, computer, speaker)
+  - Start playing any song to activate the device
+  - Use `/devices` to see available devices
+- **"Spotify Premium required"**: Many control features require Premium subscription
+- **"No playback found"**: Start music playback on any Spotify device first
+
+#### API Errors
+
+- **Rate Limit Exceeded**: Wait a few moments, the CLI handles this automatically
+- **Service Unavailable**: Spotify API is temporarily down, try again later
+- **Network Error**: Check internet connection and firewall settings
+
+#### Feature-Specific Issues
+
+- **Notifications not working**:
+  - Windows 10+ required for toast notifications
+  - Install BurntToast module: `Install-Module BurntToast`
+  - Use `notifications test` to verify functionality
+- **Search returns no results**: Check spelling and try different search terms
+- **Device transfer fails**: Ensure target device is online and active in Spotify
+- **Configuration not saving**: Check write permissions to `%APPDATA%\SpotifyCLI\`
+
+### Debug Information
+
+Enable logging for detailed troubleshooting:
+
+```powershell
+Set-SpotifyConfig @{LoggingEnabled=$true; LogLevel="Debug"}
+```
+
+View logs:
+
+```powershell
+logs
+```
+
+### Getting Help
+
+- Use `/help` in interactive mode for command-specific help
+- Use `/help <command>` for detailed command documentation
+- Check configuration with `Get-SpotifyConfig`
+- Test connectivity with built-in diagnostics
+
+---
+
+## ⚙️ Configuration Options
+
+The CLI supports extensive configuration through the `Get-SpotifyConfig` and `Set-SpotifyConfig` commands:
+
+### Available Settings
+
+| Setting                | Type    | Default  | Description                                     |
+| ---------------------- | ------- | -------- | ----------------------------------------------- |
+| `PreferredDevice`      | String  | `null`   | Default device ID for playback                  |
+| `CompactMode`          | Boolean | `false`  | Use single-line track display                   |
+| `NotificationsEnabled` | Boolean | `false`  | Enable Windows toast notifications              |
+| `AutoRefreshInterval`  | Integer | `0`      | Auto-refresh interval in seconds (0 = disabled) |
+| `LoggingEnabled`       | Boolean | `false`  | Enable debug logging to file                    |
+| `HistoryEnabled`       | Boolean | `true`   | Track playback history locally                  |
+| `MaxHistoryEntries`    | Integer | `100`    | Maximum history entries to keep                 |
+| `LogLevel`             | String  | `"Info"` | Logging level: Debug, Info, Warning, Error      |
+| `MaxLogSizeMB`         | Integer | `10`     | Maximum log file size before rotation           |
+| `LogRetentionDays`     | Integer | `30`     | Days to keep old log files                      |
+
+### Color Configuration
+
+Customize display colors for different elements:
+
+| Color Setting     | Default     | Description                 |
+| ----------------- | ----------- | --------------------------- |
+| `Colors.Playing`  | `"Green"`   | Color when track is playing |
+| `Colors.Paused`   | `"Yellow"`  | Color when track is paused  |
+| `Colors.Track`    | `"Cyan"`    | Color for track names       |
+| `Colors.Artist`   | `"Yellow"`  | Color for artist names      |
+| `Colors.Album`    | `"Green"`   | Color for album names       |
+| `Colors.Progress` | `"Magenta"` | Color for progress bars     |
+
+### Configuration Examples
+
+```powershell
+# Enable notifications and compact mode
+Set-SpotifyConfig @{
+    NotificationsEnabled = $true
+    CompactMode = $true
+}
+
+# Enable debug logging
+Set-SpotifyConfig @{
+    LoggingEnabled = $true
+    LogLevel = "Debug"
+}
+
+# Customize colors
+Set-SpotifyConfig @{
+    Colors = @{
+        Playing = "Blue"
+        Paused = "Red"
+        Track = "White"
+        Artist = "Cyan"
+    }
+}
+
+# Set auto-refresh for 5 seconds
+Set-SpotifyConfig @{AutoRefreshInterval = 5}
+```
 
 ---
 
 ## 📜 License
+
 This project is provided as-is for educational and personal use.
