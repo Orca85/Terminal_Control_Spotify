@@ -1,10 +1,46 @@
 <# 
+.SYNOPSIS
 Spotify CLI GUI-lite för PowerShell
+
+.DESCRIPTION
 - Autentiserar via Spotify Authorization Code Flow
 - Lagrar och uppdaterar access/refresh tokens lokalt
 - Kommandon: /spotify (nu spelas), /next, /pause, /play, /quit
 - Kräver: Spotify Developer App (Client ID/Secret), Premium-konto, aktiv Spotify-enhet via Spotify Connect
+
+.PARAMETER Sidecar
+Launch in sidecar/split window mode if supported by the terminal
+
+.PARAMETER NewWindow
+Force launch in a new window instead of split window
+
+.PARAMETER SplitDirection
+Direction for split window (right, down, left, up). Only applies to Windows Terminal.
+
+.EXAMPLE
+.\spotifyCLI.ps1
+Launch normally in current terminal
+
+.EXAMPLE
+.\spotifyCLI.ps1 -Sidecar
+Launch in split window if supported, otherwise new window
+
+.EXAMPLE
+.\spotifyCLI.ps1 -NewWindow
+Force launch in new window
+
+.EXAMPLE
+.\spotifyCLI.ps1 -Sidecar -SplitDirection down
+Launch in Windows Terminal split pane below current pane
 #>
+
+[CmdletBinding()]
+param(
+    [switch]$Sidecar,
+    [switch]$NewWindow,
+    [ValidateSet("right", "down", "left", "up")]
+    [string]$SplitDirection = "right"
+)
 
 #region Konfiguration
 Get-Content .env | ForEach-Object {
@@ -2882,6 +2918,42 @@ if ($config.NotificationsEnabled) {
         }
     }
 }
+
+#region Sidecar Mode Handling
+# Handle sidecar/split window launch requests
+if ($Sidecar -or $NewWindow) {
+    try {
+        # Import the SpotifyModule to get sidecar functions
+        $modulePath = Join-Path $PSScriptRoot "SpotifyModule.psm1"
+        if (Test-Path $modulePath) {
+            Import-Module $modulePath -Force -ErrorAction SilentlyContinue
+        }
+        
+        if ($Sidecar -and -not $NewWindow) {
+            Write-Host "🪟 Launching Spotify CLI in sidecar mode..." -ForegroundColor Cyan
+            $success = Start-SpotifyCliInSidecar -ScriptPath $PSCommandPath -SplitDirection $SplitDirection
+            if ($success) {
+                Write-Host "✅ Spotify CLI launched successfully in sidecar" -ForegroundColor Green
+                exit 0
+            } else {
+                Write-Host "⚠️ Sidecar launch failed, continuing in current terminal" -ForegroundColor Yellow
+            }
+        } elseif ($NewWindow) {
+            Write-Host "🪟 Launching Spotify CLI in new window..." -ForegroundColor Cyan
+            $success = Start-SpotifyCliInNewWindow -ScriptPath $PSCommandPath
+            if ($success) {
+                Write-Host "✅ Spotify CLI launched successfully in new window" -ForegroundColor Green
+                exit 0
+            } else {
+                Write-Host "⚠️ New window launch failed, continuing in current terminal" -ForegroundColor Yellow
+            }
+        }
+    } catch {
+        Write-Host "❌ Error launching sidecar: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Continuing in current terminal..." -ForegroundColor Yellow
+    }
+}
+#endregion
 
 while ($true) {
     $cmd = Read-Host ">"

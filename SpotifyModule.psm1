@@ -299,28 +299,95 @@ function Show-SpotifyTrack {
         $progress = $currentTrack.progress_ms
         $duration = $item.duration_ms
         
+        # Detect if this is a podcast episode
+        $isPodcast = $item.type -eq "episode" -or ($currentTrack.currently_playing_type -eq "episode")
+        
         if ($isCompact) {
             $playIcon = if ($isPlaying) { "▶️" } else { "⏸️" }
             $name = if ($item.name.Length -gt 25) { $item.name.Substring(0, 22) + "..." } else { $item.name }
-            $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
-            if ($artists.Length -gt 20) { $artists = $artists.Substring(0, 17) + "..." }
-            $progressBar = Show-ProgressBar -Current $progress -Total $duration -Width 15
-            $timeInfo = "{0}/{1}" -f (Format-Time $progress), (Format-Time $duration)
-            Write-Host "$playIcon $name - $artists | $progressBar $timeInfo" -ForegroundColor Cyan
+            
+            if ($isPodcast) {
+                # Podcast episode compact display
+                $showName = if ($item.show.name.Length -gt 20) { $item.show.name.Substring(0, 17) + "..." } else { $item.show.name }
+                $progressBar = Show-ProgressBar -Current $progress -Total $duration -Width 15
+                $timeInfo = "{0}/{1}" -f (Format-Time $progress), (Format-Time $duration)
+                Write-Host "$playIcon $name" -ForegroundColor Cyan
+                Write-Host "    🎙️ $showName | $progressBar $timeInfo" -ForegroundColor Magenta
+            } else {
+                # Music track compact display
+                $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+                if ($artists.Length -gt 20) { $artists = $artists.Substring(0, 17) + "..." }
+                $progressBar = Show-ProgressBar -Current $progress -Total $duration -Width 15
+                $timeInfo = "{0}/{1}" -f (Format-Time $progress), (Format-Time $duration)
+                Write-Host "$playIcon $name - $artists | $progressBar $timeInfo" -ForegroundColor Cyan
+            }
         } else {
-            Write-Host "🎵 " -NoNewline -ForegroundColor Cyan
-            Write-Host $item.name -ForegroundColor Cyan
-            Write-Host "👤 " -NoNewline -ForegroundColor Yellow
-            Write-Host (($item.artists | ForEach-Object { $_.name }) -join ", ") -ForegroundColor Yellow
-            Write-Host "📀 " -NoNewline -ForegroundColor Green
-            Write-Host $item.album.name -ForegroundColor Green
-            
-            $progressBar = Show-ProgressBar -Current $progress -Total $duration
-            Write-Host $progressBar -ForegroundColor Magenta
-            
-            $timeInfo = "{0} / {1}" -f (Format-Time $progress), (Format-Time $duration)
-            $statusIcon = if ($isPlaying) { "▶️ Playing" } else { "⏸️ Paused" }
-            Write-Host "⏱ $timeInfo $statusIcon" -ForegroundColor Gray
+            if ($isPodcast) {
+                # Enhanced detailed mode for podcast episodes
+                Write-Host "🎙️ " -NoNewline -ForegroundColor Magenta
+                Write-Host $item.name -ForegroundColor Cyan
+                Write-Host "📻 " -NoNewline -ForegroundColor Yellow
+                Write-Host $item.show.name -ForegroundColor Yellow
+                
+                # Show podcast description if available (truncated for readability)
+                if ($item.description) {
+                    $description = $item.description
+                    if ($description.Length -gt 100) {
+                        $description = $description.Substring(0, 97) + "..."
+                    }
+                    Write-Host "📝 " -NoNewline -ForegroundColor Gray
+                    Write-Host $description -ForegroundColor Gray
+                }
+                
+                # Show episode release date if available
+                if ($item.release_date) {
+                    try {
+                        $releaseDate = [DateTime]::Parse($item.release_date)
+                        Write-Host "📅 Released: $($releaseDate.ToString('MMM dd, yyyy'))" -ForegroundColor Gray
+                    } catch {
+                        Write-Host "📅 Released: $($item.release_date)" -ForegroundColor Gray
+                    }
+                }
+                
+                # Show episode language if available
+                if ($item.language) {
+                    Write-Host "🌐 Language: $($item.language.ToUpper())" -ForegroundColor Gray
+                }
+                
+                # Show if episode is explicit
+                if ($item.explicit) {
+                    Write-Host "🔞 Explicit Content" -ForegroundColor Red
+                }
+                
+                Write-Host ""  # New line after episode info
+                
+                # Progress bar for podcast episodes
+                $progressBar = Show-ProgressBar -Current $progress -Total $duration
+                Write-Host $progressBar -ForegroundColor Magenta
+                
+                $timeInfo = "{0} / {1}" -f (Format-Time $progress), (Format-Time $duration)
+                $statusIcon = if ($isPlaying) { "▶️ Playing" } else { "⏸️ Paused" }
+                Write-Host "⏱ $timeInfo $statusIcon" -ForegroundColor Gray
+                
+                # Show podcast show context
+                Write-Host "💡 Podcast episode from '$($item.show.name)'" -ForegroundColor Cyan
+                
+            } else {
+                # Music track detailed display
+                Write-Host "🎵 " -NoNewline -ForegroundColor Cyan
+                Write-Host $item.name -ForegroundColor Cyan
+                Write-Host "👤 " -NoNewline -ForegroundColor Yellow
+                Write-Host (($item.artists | ForEach-Object { $_.name }) -join ", ") -ForegroundColor Yellow
+                Write-Host "📀 " -NoNewline -ForegroundColor Green
+                Write-Host $item.album.name -ForegroundColor Green
+                
+                $progressBar = Show-ProgressBar -Current $progress -Total $duration
+                Write-Host $progressBar -ForegroundColor Magenta
+                
+                $timeInfo = "{0} / {1}" -f (Format-Time $progress), (Format-Time $duration)
+                $statusIcon = if ($isPlaying) { "▶️ Playing" } else { "⏸️ Paused" }
+                Write-Host "⏱ $timeInfo $statusIcon" -ForegroundColor Gray
+            }
         }
     } catch {
         Write-Host "Error getting current track: $($_.Exception.Message)" -ForegroundColor Red
@@ -349,30 +416,43 @@ function play {
     
     $trackUri = $TrackReference
     
-    # Check if it's a number (track index from search)
+    # Check if it's a number (track/episode index from search)
     if ($TrackReference -match '^\d+$') {
-        $trackIndex = [int]$TrackReference - 1
-        if ($script:SessionTracks -and $trackIndex -ge 0 -and $trackIndex -lt $script:SessionTracks.Count) {
-            $trackUri = $script:SessionTracks[$trackIndex].uri
-            $trackName = $script:SessionTracks[$trackIndex].name
-            $artists = ($script:SessionTracks[$trackIndex].artists | ForEach-Object { $_.name }) -join ", "
-            Write-Host "🎯 Playing track #$TrackReference ($trackName by $artists)..." -ForegroundColor Cyan
+        $itemIndex = [int]$TrackReference - 1
+        if ($script:SessionTracks -and $itemIndex -ge 0 -and $itemIndex -lt $script:SessionTracks.Count) {
+            $item = $script:SessionTracks[$itemIndex]
+            $trackUri = $item.uri
+            $itemName = $item.name
+            
+            if ($item.search_type -eq "episode" -or $item.type -eq "episode") {
+                # Playing podcast episode
+                $showName = $item.show.name
+                Write-Host "🎯 Playing podcast episode #$TrackReference ($itemName from $showName)..." -ForegroundColor Magenta
+            } else {
+                # Playing music track
+                $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+                Write-Host "🎯 Playing track #$TrackReference ($itemName by $artists)..." -ForegroundColor Cyan
+            }
         } else {
-            Write-Host "❌ Invalid track number. Use 'search' to find tracks first." -ForegroundColor Red
+            Write-Host "❌ Invalid item number. Use 'search' to find tracks and episodes first." -ForegroundColor Red
             return
         }
     }
     
     # Ensure it's a valid Spotify URI
-    if (-not $trackUri.StartsWith("spotify:track:")) {
-        Write-Host "❌ Invalid track URI. Must start with 'spotify:track:'" -ForegroundColor Red
+    if (-not ($trackUri.StartsWith("spotify:track:") -or $trackUri.StartsWith("spotify:episode:"))) {
+        Write-Host "❌ Invalid URI. Must be a Spotify track or episode URI" -ForegroundColor Red
         return
     }
     
     try {
         $body = @{ uris = @($trackUri) }
         Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
-        Write-Host "▶️ Playing track" -ForegroundColor Green
+        if ($trackUri.StartsWith("spotify:episode:")) {
+            Write-Host "▶️ Playing podcast episode" -ForegroundColor Magenta
+        } else {
+            Write-Host "▶️ Playing track" -ForegroundColor Green
+        }
     } catch {
         Write-Host "❌ Could not play track" -ForegroundColor Red
     }
@@ -479,7 +559,7 @@ function search {
     try {
         $searchQuery = @{ 
             q = $Query
-            type = "track,artist,album"
+            type = "track,artist,album,episode"
             limit = "10"
         }
         Write-Host "Searching for: $Query" -ForegroundColor Gray
@@ -490,10 +570,29 @@ function search {
         Write-Host "🔍 Search Results for '$Query':" -ForegroundColor Cyan
         Write-Host ""
         
+        # Combine tracks and episodes for numbered reference
+        $allItems = @()
+        $trackCount = 0
+        $episodeCount = 0
+        
         if ($results.tracks -and $results.tracks.items) {
-            # Store tracks in session for numbered reference
-            $script:SessionTracks = $results.tracks.items[0..9]  # Store up to 10 tracks
-            
+            $trackCount = $results.tracks.items.Count
+            $allItems += $results.tracks.items[0..4] | ForEach-Object { 
+                $_ | Add-Member -NotePropertyName "search_type" -NotePropertyValue "track" -PassThru 
+            }
+        }
+        
+        if ($results.episodes -and $results.episodes.items) {
+            $episodeCount = $results.episodes.items.Count
+            $allItems += $results.episodes.items[0..4] | ForEach-Object { 
+                $_ | Add-Member -NotePropertyName "search_type" -NotePropertyValue "episode" -PassThru 
+            }
+        }
+        
+        # Store combined items in session for numbered reference
+        $script:SessionTracks = $allItems[0..9]  # Store up to 10 items (tracks + episodes)
+        
+        if ($results.tracks -and $results.tracks.items) {
             Write-Host "TRACKS:" -ForegroundColor Yellow
             $i = 1
             foreach ($track in $results.tracks.items[0..4]) {
@@ -502,7 +601,33 @@ function search {
                 $i++
             }
             Write-Host ""
-            Write-Host "💡 Tip: Use 'play 1' to play track #1, or 'queue 2' to add track #2 to queue" -ForegroundColor Gray
+        }
+        
+        if ($results.episodes -and $results.episodes.items) {
+            Write-Host "PODCAST EPISODES:" -ForegroundColor Magenta
+            $startIndex = ($results.tracks.items.Count -gt 0) ? ($results.tracks.items[0..4].Count + 1) : 1
+            $i = $startIndex
+            foreach ($episode in $results.episodes.items[0..4]) {
+                $showName = $episode.show.name
+                $description = if ($episode.description -and $episode.description.Length -gt 50) { 
+                    $episode.description.Substring(0, 47) + "..." 
+                } else { 
+                    $episode.description 
+                }
+                Write-Host "$i. 🎙️ $($episode.name) - $showName" -ForegroundColor White
+                if ($description) {
+                    Write-Host "   📝 $description" -ForegroundColor Gray
+                }
+                $i++
+            }
+            Write-Host ""
+        }
+        
+        if ($allItems.Count -gt 0) {
+            Write-Host "💡 Tip: Use 'play 1' to play item #1, or 'queue 2' to add item #2 to queue" -ForegroundColor Gray
+            if ($episodeCount -gt 0) {
+                Write-Host "💡 Podcast episodes can be saved using 'save-track <number>'" -ForegroundColor Gray
+            }
         }
     } catch {
         Write-Host "❌ Search failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -831,7 +956,7 @@ function volume {
 function seek {
     <#
     .SYNOPSIS
-    Seek in current track
+    Seek in current track or podcast episode
     .PARAMETER Seconds
     Seconds to seek (positive = forward, negative = backward)
     .EXAMPLE
@@ -840,19 +965,25 @@ function seek {
     .EXAMPLE
     seek -10
     Seek backward 10 seconds
+    .EXAMPLE
+    seek -30
+    Seek backward 30 seconds (useful for podcast replay)
     #>
     param([int]$Seconds)
     
     try {
         $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
         if (-not $currentTrack -or -not $currentTrack.item) {
-            Write-Host "❌ No track currently playing" -ForegroundColor Red
+            Write-Host "❌ No track or episode currently playing" -ForegroundColor Red
             return
         }
         
+        $item = $currentTrack.item
+        $isPodcast = $item.type -eq "episode" -or ($currentTrack.currently_playing_type -eq "episode")
+        
         $currentPosition = $currentTrack.progress_ms
         $newPosition = $currentPosition + ($Seconds * 1000)
-        $maxPosition = $currentTrack.item.duration_ms
+        $maxPosition = $item.duration_ms
         
         # Ensure position is within bounds
         if ($newPosition -lt 0) { $newPosition = 0 }
@@ -862,10 +993,54 @@ function seek {
         Invoke-SpotifyApi -Method PUT -Path "/me/player/seek" -Query $query | Out-Null
         
         $direction = if ($Seconds -gt 0) { "forward" } else { "backward" }
-        Write-Host "⏩ Seeked $direction $([Math]::Abs($Seconds)) seconds" -ForegroundColor Green
+        $absSeconds = [Math]::Abs($Seconds)
+        
+        if ($isPodcast) {
+            Write-Host "⏩ Seeked $direction $absSeconds seconds in podcast episode" -ForegroundColor Magenta
+            
+            # Show current position for podcast episodes (more useful for long content)
+            $currentTimeStr = Format-Time $newPosition
+            $totalTimeStr = Format-Time $maxPosition
+            Write-Host "📍 Position: $currentTimeStr / $totalTimeStr" -ForegroundColor Gray
+        } else {
+            Write-Host "⏩ Seeked $direction $absSeconds seconds" -ForegroundColor Green
+        }
     } catch {
-        Write-Host "❌ Could not seek in track" -ForegroundColor Red
+        Write-Host "❌ Could not seek in current content" -ForegroundColor Red
     }
+}
+
+function skip-forward {
+    <#
+    .SYNOPSIS
+    Skip forward 30 seconds (common podcast control)
+    .EXAMPLE
+    skip-forward
+    Skip forward 30 seconds in current episode or track
+    #>
+    seek 30
+}
+
+function skip-back {
+    <#
+    .SYNOPSIS
+    Skip backward 15 seconds (common podcast control)
+    .EXAMPLE
+    skip-back
+    Skip backward 15 seconds in current episode or track
+    #>
+    seek -15
+}
+
+function replay {
+    <#
+    .SYNOPSIS
+    Skip backward 30 seconds (useful for podcast replay)
+    .EXAMPLE
+    replay
+    Skip backward 30 seconds to replay content
+    #>
+    seek -30
 }
 
 function shuffle {
@@ -1133,13 +1308,32 @@ function recent {
         
         $i = 1
         foreach ($item in $recentResponse.items) {
-            $track = $item.track
-            $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
             $playedDate = [DateTime]::Parse($item.played_at).ToString("yyyy-MM-dd HH:mm")
             
-            Write-Host "$i. $($track.name)" -ForegroundColor White
-            Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
-            Write-Host "   Played: $playedDate • URI: $($track.uri)" -ForegroundColor Gray
+            if ($item.track) {
+                # Music track
+                $track = $item.track
+                $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+                
+                Write-Host "$i. $($track.name)" -ForegroundColor White
+                Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
+                Write-Host "   Played: $playedDate • URI: $($track.uri)" -ForegroundColor Gray
+            } elseif ($item.episode) {
+                # Podcast episode
+                $episode = $item.episode
+                
+                Write-Host "$i. 🎙️ $($episode.name)" -ForegroundColor Magenta
+                Write-Host "   from $($episode.show.name)" -ForegroundColor Gray
+                if ($episode.description) {
+                    $description = if ($episode.description.Length -gt 60) { 
+                        $episode.description.Substring(0, 57) + "..." 
+                    } else { 
+                        $episode.description 
+                    }
+                    Write-Host "   📝 $description" -ForegroundColor Gray
+                }
+                Write-Host "   Played: $playedDate • URI: $($episode.uri)" -ForegroundColor Gray
+            }
             Write-Host ""
             $i++
         }
@@ -1151,50 +1345,126 @@ function recent {
 function save-track {
     <#
     .SYNOPSIS
-    Save current track to library
+    Save current track or podcast episode to library
     .EXAMPLE
     save-track
-    Save the currently playing track
+    Save the currently playing track or episode
+    .EXAMPLE
+    save-track 3
+    Save item #3 from search results
     #>
+    param([string]$ItemReference)
+    
     try {
-        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-        if (-not $currentTrack -or -not $currentTrack.item) {
-            Write-Host "❌ No track currently playing" -ForegroundColor Red
-            return
+        $item = $null
+        $itemName = ""
+        $isEpisode = $false
+        
+        if ([string]::IsNullOrWhiteSpace($ItemReference)) {
+            # Save currently playing item
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if (-not $currentTrack -or -not $currentTrack.item) {
+                Write-Host "❌ No track or episode currently playing" -ForegroundColor Red
+                return
+            }
+            $item = $currentTrack.item
+            $itemName = $item.name
+            $isEpisode = $item.type -eq "episode" -or ($currentTrack.currently_playing_type -eq "episode")
+        } else {
+            # Save item from search results by number
+            if ($ItemReference -match '^\d+$') {
+                $itemIndex = [int]$ItemReference - 1
+                if ($script:SessionTracks -and $itemIndex -ge 0 -and $itemIndex -lt $script:SessionTracks.Count) {
+                    $item = $script:SessionTracks[$itemIndex]
+                    $itemName = $item.name
+                    $isEpisode = $item.search_type -eq "episode" -or $item.type -eq "episode"
+                } else {
+                    Write-Host "❌ Invalid item number. Use 'search' to find tracks and episodes first." -ForegroundColor Red
+                    return
+                }
+            } else {
+                Write-Host "❌ Invalid item reference. Use a number from search results." -ForegroundColor Red
+                return
+            }
         }
         
-        $trackId = $currentTrack.item.id
-        $query = @{ ids = $trackId }
-        Invoke-SpotifyApi -Method PUT -Path "/me/tracks" -Query $query | Out-Null
+        $itemId = $item.id
+        $query = @{ ids = $itemId }
         
-        Write-Host "❤️ Saved '$($currentTrack.item.name)' to your library" -ForegroundColor Green
+        if ($isEpisode) {
+            # Save podcast episode
+            Invoke-SpotifyApi -Method PUT -Path "/me/episodes" -Query $query | Out-Null
+            Write-Host "❤️ Saved podcast episode '$itemName' to your library" -ForegroundColor Magenta
+        } else {
+            # Save music track
+            Invoke-SpotifyApi -Method PUT -Path "/me/tracks" -Query $query | Out-Null
+            Write-Host "❤️ Saved track '$itemName' to your library" -ForegroundColor Green
+        }
     } catch {
-        Write-Host "❌ Could not save track" -ForegroundColor Red
+        Write-Host "❌ Could not save item" -ForegroundColor Red
     }
 }
 
 function unsave-track {
     <#
     .SYNOPSIS
-    Remove current track from library
+    Remove current track or podcast episode from library
     .EXAMPLE
     unsave-track
-    Remove the currently playing track from library
+    Remove the currently playing track or episode from library
+    .EXAMPLE
+    unsave-track 3
+    Remove item #3 from search results from library
     #>
+    param([string]$ItemReference)
+    
     try {
-        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-        if (-not $currentTrack -or -not $currentTrack.item) {
-            Write-Host "❌ No track currently playing" -ForegroundColor Red
-            return
+        $item = $null
+        $itemName = ""
+        $isEpisode = $false
+        
+        if ([string]::IsNullOrWhiteSpace($ItemReference)) {
+            # Unsave currently playing item
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if (-not $currentTrack -or -not $currentTrack.item) {
+                Write-Host "❌ No track or episode currently playing" -ForegroundColor Red
+                return
+            }
+            $item = $currentTrack.item
+            $itemName = $item.name
+            $isEpisode = $item.type -eq "episode" -or ($currentTrack.currently_playing_type -eq "episode")
+        } else {
+            # Unsave item from search results by number
+            if ($ItemReference -match '^\d+$') {
+                $itemIndex = [int]$ItemReference - 1
+                if ($script:SessionTracks -and $itemIndex -ge 0 -and $itemIndex -lt $script:SessionTracks.Count) {
+                    $item = $script:SessionTracks[$itemIndex]
+                    $itemName = $item.name
+                    $isEpisode = $item.search_type -eq "episode" -or $item.type -eq "episode"
+                } else {
+                    Write-Host "❌ Invalid item number. Use 'search' to find tracks and episodes first." -ForegroundColor Red
+                    return
+                }
+            } else {
+                Write-Host "❌ Invalid item reference. Use a number from search results." -ForegroundColor Red
+                return
+            }
         }
         
-        $trackId = $currentTrack.item.id
-        $query = @{ ids = $trackId }
-        Invoke-SpotifyApi -Method DELETE -Path "/me/tracks" -Query $query | Out-Null
+        $itemId = $item.id
+        $query = @{ ids = $itemId }
         
-        Write-Host "💔 Removed '$($currentTrack.item.name)' from your library" -ForegroundColor Yellow
+        if ($isEpisode) {
+            # Unsave podcast episode
+            Invoke-SpotifyApi -Method DELETE -Path "/me/episodes" -Query $query | Out-Null
+            Write-Host "💔 Removed podcast episode '$itemName' from your library" -ForegroundColor Yellow
+        } else {
+            # Unsave music track
+            Invoke-SpotifyApi -Method DELETE -Path "/me/tracks" -Query $query | Out-Null
+            Write-Host "💔 Removed track '$itemName' from your library" -ForegroundColor Yellow
+        }
     } catch {
-        Write-Host "❌ Could not remove track" -ForegroundColor Red
+        Write-Host "❌ Could not remove item" -ForegroundColor Red
     }
 }
 
@@ -1602,6 +1872,533 @@ function pl {
     }
 }
 
+#region Window Management and Terminal Detection
+
+function Get-TerminalCapabilities {
+    <#
+    .SYNOPSIS
+    Detect terminal capabilities for split window support and other features
+    
+    .DESCRIPTION
+    Analyzes the current PowerShell environment to determine what terminal features
+    are available, including split window support, interactive input, and visual capabilities.
+    
+    .OUTPUTS
+    Hashtable with capability information
+    #>
+    
+    $capabilities = @{
+        SupportsColors = $true
+        SupportsInteractiveInput = $true
+        SupportsSplitWindow = $false
+        SupportsToastNotifications = $true
+        TerminalType = "Unknown"
+        CanCreateNewWindow = $true
+        WindowsTerminalAvailable = $false
+        VSCodeTerminal = $false
+    }
+    
+    try {
+        # Detect terminal type based on environment variables and process information
+        $parentProcess = $null
+        $currentProcess = Get-Process -Id $PID -ErrorAction SilentlyContinue
+        
+        if ($currentProcess -and $currentProcess.Parent) {
+            $parentProcess = Get-Process -Id $currentProcess.Parent.Id -ErrorAction SilentlyContinue
+        }
+        
+        # Check for Windows Terminal
+        if ($env:WT_SESSION -or $env:WT_PROFILE_ID) {
+            $capabilities.TerminalType = "WindowsTerminal"
+            $capabilities.SupportsSplitWindow = $true
+            $capabilities.WindowsTerminalAvailable = $true
+        }
+        # Check for VS Code terminal
+        elseif ($env:TERM_PROGRAM -eq "vscode" -or $env:VSCODE_PID) {
+            $capabilities.TerminalType = "VSCode"
+            $capabilities.SupportsSplitWindow = $true
+            $capabilities.VSCodeTerminal = $true
+        }
+        # Check for PowerShell ISE
+        elseif ($psISE) {
+            $capabilities.TerminalType = "PowerShellISE"
+            $capabilities.SupportsInteractiveInput = $false
+            $capabilities.SupportsSplitWindow = $false
+        }
+        # Check for Windows PowerShell Console Host
+        elseif ($Host.Name -eq "ConsoleHost") {
+            if ($parentProcess -and $parentProcess.ProcessName -eq "WindowsTerminal") {
+                $capabilities.TerminalType = "WindowsTerminal"
+                $capabilities.SupportsSplitWindow = $true
+                $capabilities.WindowsTerminalAvailable = $true
+            } elseif ($parentProcess -and $parentProcess.ProcessName -eq "Code") {
+                $capabilities.TerminalType = "VSCode"
+                $capabilities.SupportsSplitWindow = $true
+                $capabilities.VSCodeTerminal = $true
+            } else {
+                $capabilities.TerminalType = "PowerShellConsole"
+            }
+        }
+        # Check for PowerShell 7+ terminal
+        elseif ($Host.Name -eq "ConsoleHost" -and $PSVersionTable.PSVersion.Major -ge 7) {
+            $capabilities.TerminalType = "PowerShell7Console"
+        }
+        
+        # Test for Windows Terminal availability even if not currently running in it
+        if (-not $capabilities.WindowsTerminalAvailable) {
+            try {
+                $wtPath = Get-Command "wt" -ErrorAction SilentlyContinue
+                if ($wtPath) {
+                    $capabilities.WindowsTerminalAvailable = $true
+                }
+            } catch {
+                # Windows Terminal not available
+            }
+        }
+        
+        # Test color support
+        try {
+            $capabilities.SupportsColors = $Host.UI.SupportsVirtualTerminal -or 
+                                         ($env:TERM -and $env:TERM -ne "dumb") -or
+                                         ($capabilities.TerminalType -in @("WindowsTerminal", "VSCode", "PowerShellConsole"))
+        } catch {
+            $capabilities.SupportsColors = $true  # Assume support by default
+        }
+        
+        # Test interactive input support
+        try {
+            $capabilities.SupportsInteractiveInput = $Host.UI.RawUI -and 
+                                                    $capabilities.TerminalType -ne "PowerShellISE"
+        } catch {
+            $capabilities.SupportsInteractiveInput = $true  # Assume support by default
+        }
+        
+        # Test toast notification support
+        try {
+            $capabilities.SupportsToastNotifications = [System.Environment]::OSVersion.Platform -eq "Win32NT" -and
+                                                      [System.Environment]::OSVersion.Version.Major -ge 10
+        } catch {
+            $capabilities.SupportsToastNotifications = $true  # Assume support by default
+        }
+        
+    } catch {
+        Write-Verbose "Error detecting terminal capabilities: $($_.Exception.Message)"
+        # Return safe defaults on error
+    }
+    
+    return $capabilities
+}
+
+function Test-SplitWindowSupport {
+    <#
+    .SYNOPSIS
+    Test if the current terminal supports split window functionality
+    
+    .DESCRIPTION
+    Checks if the current terminal environment supports creating split panes or windows
+    
+    .OUTPUTS
+    Boolean indicating split window support
+    #>
+    
+    $capabilities = Get-TerminalCapabilities
+    return $capabilities.SupportsSplitWindow
+}
+
+function Get-WindowsTerminalPath {
+    <#
+    .SYNOPSIS
+    Get the path to Windows Terminal executable
+    
+    .DESCRIPTION
+    Attempts to locate the Windows Terminal executable in common locations
+    
+    .OUTPUTS
+    String path to wt.exe or $null if not found
+    #>
+    
+    try {
+        # Try to find wt command
+        $wtCommand = Get-Command "wt" -ErrorAction SilentlyContinue
+        if ($wtCommand) {
+            return $wtCommand.Source
+        }
+        
+        # Try common installation paths
+        $commonPaths = @(
+            "$env:LOCALAPPDATA\Microsoft\WindowsApps\wt.exe",
+            "$env:ProgramFiles\WindowsApps\Microsoft.WindowsTerminal*\wt.exe",
+            "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal*\LocalState\wt.exe"
+        )
+        
+        foreach ($path in $commonPaths) {
+            $resolved = Resolve-Path $path -ErrorAction SilentlyContinue
+            if ($resolved) {
+                return $resolved.Path
+            }
+        }
+        
+        return $null
+    } catch {
+        return $null
+    }
+}
+
+function Show-TerminalCapabilities {
+    <#
+    .SYNOPSIS
+    Display current terminal capabilities for debugging
+    
+    .DESCRIPTION
+    Shows detailed information about the current terminal environment and its capabilities
+    #>
+    
+    $capabilities = Get-TerminalCapabilities
+    
+    Write-Host "🖥️ Terminal Capabilities Report" -ForegroundColor Cyan
+    Write-Host "================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    Write-Host "Terminal Type: " -NoNewline -ForegroundColor Yellow
+    Write-Host $capabilities.TerminalType -ForegroundColor White
+    
+    Write-Host "Supports Colors: " -NoNewline -ForegroundColor Yellow
+    $colorStatus = if ($capabilities.SupportsColors) { "✅ Yes" } else { "❌ No" }
+    Write-Host $colorStatus -ForegroundColor $(if ($capabilities.SupportsColors) { "Green" } else { "Red" })
+    
+    Write-Host "Supports Interactive Input: " -NoNewline -ForegroundColor Yellow
+    $interactiveStatus = if ($capabilities.SupportsInteractiveInput) { "✅ Yes" } else { "❌ No" }
+    Write-Host $interactiveStatus -ForegroundColor $(if ($capabilities.SupportsInteractiveInput) { "Green" } else { "Red" })
+    
+    Write-Host "Supports Split Window: " -NoNewline -ForegroundColor Yellow
+    $splitStatus = if ($capabilities.SupportsSplitWindow) { "✅ Yes" } else { "❌ No" }
+    Write-Host $splitStatus -ForegroundColor $(if ($capabilities.SupportsSplitWindow) { "Green" } else { "Red" })
+    
+    Write-Host "Supports Toast Notifications: " -NoNewline -ForegroundColor Yellow
+    $toastStatus = if ($capabilities.SupportsToastNotifications) { "✅ Yes" } else { "❌ No" }
+    Write-Host $toastStatus -ForegroundColor $(if ($capabilities.SupportsToastNotifications) { "Green" } else { "Red" })
+    
+    Write-Host "Windows Terminal Available: " -NoNewline -ForegroundColor Yellow
+    $wtStatus = if ($capabilities.WindowsTerminalAvailable) { "✅ Yes" } else { "❌ No" }
+    Write-Host $wtStatus -ForegroundColor $(if ($capabilities.WindowsTerminalAvailable) { "Green" } else { "Red" })
+    
+    Write-Host "VS Code Terminal: " -NoNewline -ForegroundColor Yellow
+    $vscodeStatus = if ($capabilities.VSCodeTerminal) { "✅ Yes" } else { "❌ No" }
+    Write-Host $vscodeStatus -ForegroundColor $(if ($capabilities.VSCodeTerminal) { "Green" } else { "Red" })
+    
+    Write-Host ""
+    Write-Host "Environment Details:" -ForegroundColor Yellow
+    Write-Host "  PowerShell Version: $($PSVersionTable.PSVersion)" -ForegroundColor Gray
+    Write-Host "  Host Name: $($Host.Name)" -ForegroundColor Gray
+    Write-Host "  Process ID: $PID" -ForegroundColor Gray
+    
+    if ($env:WT_SESSION) {
+        Write-Host "  Windows Terminal Session: $($env:WT_SESSION)" -ForegroundColor Gray
+    }
+    if ($env:WT_PROFILE_ID) {
+        Write-Host "  Windows Terminal Profile: $($env:WT_PROFILE_ID)" -ForegroundColor Gray
+    }
+    if ($env:VSCODE_PID) {
+        Write-Host "  VS Code Process ID: $($env:VSCODE_PID)" -ForegroundColor Gray
+    }
+    if ($env:TERM_PROGRAM) {
+        Write-Host "  Terminal Program: $($env:TERM_PROGRAM)" -ForegroundColor Gray
+    }
+}
+
+function Start-SpotifyCliInSidecar {
+    <#
+    .SYNOPSIS
+    Launch Spotify CLI in a split window or sidecar
+    
+    .DESCRIPTION
+    Attempts to launch the Spotify CLI in a split window or sidecar based on the current terminal capabilities.
+    Falls back to a new window if split window is not supported.
+    
+    .PARAMETER ScriptPath
+    Path to the spotifyCLI.ps1 script to launch
+    
+    .PARAMETER ForceNewWindow
+    Force opening in a new window instead of attempting split window
+    
+    .PARAMETER SplitDirection
+    Direction for split window (right, down, left, up). Only applies to Windows Terminal.
+    
+    .OUTPUTS
+    Boolean indicating success of the launch operation
+    #>
+    
+    param(
+        [string]$ScriptPath = ".\spotifyCLI.ps1",
+        [switch]$ForceNewWindow,
+        [ValidateSet("right", "down", "left", "up")]
+        [string]$SplitDirection = "right"
+    )
+    
+    $capabilities = Get-TerminalCapabilities
+    
+    # Resolve the script path
+    if (-not (Test-Path $ScriptPath)) {
+        # Try to find the script in the current directory or module directory
+        $possiblePaths = @(
+            $ScriptPath,
+            ".\spotifyCLI.ps1",
+            "$PSScriptRoot\spotifyCLI.ps1",
+            "$(Split-Path $PSScriptRoot)\spotifyCLI.ps1"
+        )
+        
+        $foundPath = $null
+        foreach ($path in $possiblePaths) {
+            if (Test-Path $path) {
+                $foundPath = Resolve-Path $path
+                break
+            }
+        }
+        
+        if (-not $foundPath) {
+            Write-Host "❌ Could not find spotifyCLI.ps1 script" -ForegroundColor Red
+            Write-Host "💡 Please ensure the script is in the current directory or specify the full path" -ForegroundColor Yellow
+            return $false
+        }
+        
+        $ScriptPath = $foundPath.Path
+    }
+    
+    # If force new window or split not supported, use new window
+    if ($ForceNewWindow -or -not $capabilities.SupportsSplitWindow) {
+        return Start-SpotifyCliInNewWindow -ScriptPath $ScriptPath
+    }
+    
+    # Attempt split window based on terminal type
+    switch ($capabilities.TerminalType) {
+        "WindowsTerminal" {
+            return Start-SpotifyCliInWindowsTerminalSplit -ScriptPath $ScriptPath -SplitDirection $SplitDirection
+        }
+        "VSCode" {
+            return Start-SpotifyCliInVSCodeSplit -ScriptPath $ScriptPath
+        }
+        default {
+            Write-Host "💡 Split window not supported in $($capabilities.TerminalType). Opening in new window..." -ForegroundColor Yellow
+            return Start-SpotifyCliInNewWindow -ScriptPath $ScriptPath
+        }
+    }
+}
+
+function Start-SpotifyCliInWindowsTerminalSplit {
+    <#
+    .SYNOPSIS
+    Launch Spotify CLI in Windows Terminal split pane
+    
+    .PARAMETER ScriptPath
+    Path to the spotifyCLI.ps1 script
+    
+    .PARAMETER SplitDirection
+    Direction for the split (right, down, left, up)
+    #>
+    
+    param(
+        [Parameter(Mandatory)]
+        [string]$ScriptPath,
+        [string]$SplitDirection = "right"
+    )
+    
+    try {
+        $wtPath = Get-WindowsTerminalPath
+        if (-not $wtPath) {
+            Write-Host "❌ Windows Terminal not found" -ForegroundColor Red
+            return $false
+        }
+        
+        # Build Windows Terminal split command
+        $splitArg = switch ($SplitDirection.ToLower()) {
+            "right" { "--split-pane" }
+            "down" { "--split-pane", "--vertical" }
+            "left" { "--split-pane", "--horizontal" }
+            "up" { "--split-pane", "--vertical" }
+            default { "--split-pane" }
+        }
+        
+        # Create the command arguments
+        $arguments = @($splitArg) + @("--profile", "PowerShell") + @("powershell", "-NoExit", "-Command", "& '$ScriptPath'")
+        
+        Write-Host "🪟 Opening Spotify CLI in Windows Terminal split pane..." -ForegroundColor Cyan
+        Start-Process -FilePath $wtPath -ArgumentList $arguments -ErrorAction Stop
+        
+        Write-Host "✅ Spotify CLI launched in split pane" -ForegroundColor Green
+        return $true
+        
+    } catch {
+        Write-Host "❌ Failed to open Windows Terminal split: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Falling back to new window..." -ForegroundColor Yellow
+        return Start-SpotifyCliInNewWindow -ScriptPath $ScriptPath
+    }
+}
+
+function Start-SpotifyCliInVSCodeSplit {
+    <#
+    .SYNOPSIS
+    Launch Spotify CLI in VS Code terminal split
+    
+    .PARAMETER ScriptPath
+    Path to the spotifyCLI.ps1 script
+    #>
+    
+    param(
+        [Parameter(Mandatory)]
+        [string]$ScriptPath
+    )
+    
+    try {
+        # VS Code terminal splitting requires the VS Code command palette or extension
+        # For now, provide user guidance and fall back to new terminal
+        Write-Host "💡 VS Code Terminal Split Instructions:" -ForegroundColor Cyan
+        Write-Host "   1. Press Ctrl+Shift+5 to split the terminal" -ForegroundColor Gray
+        Write-Host "   2. In the new terminal pane, run: & '$ScriptPath'" -ForegroundColor Gray
+        Write-Host "   3. Or use the Terminal menu > Split Terminal" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "🔄 Alternatively, opening in new VS Code terminal..." -ForegroundColor Yellow
+        
+        # Try to open a new terminal in VS Code
+        # This uses the integrated terminal API if available
+        if ($env:VSCODE_PID) {
+            # Create a new terminal and run the script
+            $command = "& '$ScriptPath'"
+            Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", $command -ErrorAction Stop
+            
+            Write-Host "✅ Spotify CLI launched in new terminal" -ForegroundColor Green
+            return $true
+        } else {
+            return Start-SpotifyCliInNewWindow -ScriptPath $ScriptPath
+        }
+        
+    } catch {
+        Write-Host "❌ Failed to open VS Code terminal: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Falling back to new window..." -ForegroundColor Yellow
+        return Start-SpotifyCliInNewWindow -ScriptPath $ScriptPath
+    }
+}
+
+function Start-SpotifyCliInNewWindow {
+    <#
+    .SYNOPSIS
+    Launch Spotify CLI in a new window
+    
+    .PARAMETER ScriptPath
+    Path to the spotifyCLI.ps1 script
+    #>
+    
+    param(
+        [Parameter(Mandatory)]
+        [string]$ScriptPath
+    )
+    
+    try {
+        Write-Host "🪟 Opening Spotify CLI in new window..." -ForegroundColor Cyan
+        
+        # Determine the best PowerShell executable to use
+        $psExecutable = if ($PSVersionTable.PSVersion.Major -ge 7) {
+            "pwsh"
+        } else {
+            "powershell"
+        }
+        
+        # Try to use the same PowerShell version as current session
+        try {
+            $currentPSPath = (Get-Process -Id $PID).Path
+            if ($currentPSPath -and (Test-Path $currentPSPath)) {
+                $psExecutable = $currentPSPath
+            }
+        } catch {
+            # Fall back to default
+        }
+        
+        $arguments = @("-NoExit", "-Command", "& '$ScriptPath'")
+        Start-Process -FilePath $psExecutable -ArgumentList $arguments -ErrorAction Stop
+        
+        Write-Host "✅ Spotify CLI launched in new window" -ForegroundColor Green
+        return $true
+        
+    } catch {
+        Write-Host "❌ Failed to open new window: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Try running the script manually: & '$ScriptPath'" -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Test-SidecarLaunch {
+    <#
+    .SYNOPSIS
+    Test sidecar launching functionality
+    
+    .DESCRIPTION
+    Tests the sidecar launching functionality without actually launching the CLI
+    #>
+    
+    Write-Host "🧪 Testing Sidecar Launch Functionality" -ForegroundColor Cyan
+    Write-Host "=======================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $capabilities = Get-TerminalCapabilities
+    
+    Write-Host "Current Terminal: $($capabilities.TerminalType)" -ForegroundColor Yellow
+    Write-Host "Split Window Support: $(if ($capabilities.SupportsSplitWindow) { '✅ Yes' } else { '❌ No' })" -ForegroundColor $(if ($capabilities.SupportsSplitWindow) { "Green" } else { "Red" })
+    Write-Host ""
+    
+    # Test script path detection
+    $scriptPaths = @(
+        ".\spotifyCLI.ps1",
+        "$PSScriptRoot\spotifyCLI.ps1",
+        "$(Split-Path $PSScriptRoot)\spotifyCLI.ps1"
+    )
+    
+    $foundScript = $false
+    foreach ($path in $scriptPaths) {
+        if (Test-Path $path) {
+            Write-Host "✅ Found script at: $path" -ForegroundColor Green
+            $foundScript = $true
+            break
+        }
+    }
+    
+    if (-not $foundScript) {
+        Write-Host "⚠️ spotifyCLI.ps1 script not found in expected locations" -ForegroundColor Yellow
+        Write-Host "   Checked paths:" -ForegroundColor Gray
+        foreach ($path in $scriptPaths) {
+            Write-Host "   - $path" -ForegroundColor Gray
+        }
+    }
+    
+    # Test Windows Terminal availability
+    if ($capabilities.WindowsTerminalAvailable) {
+        $wtPath = Get-WindowsTerminalPath
+        Write-Host "✅ Windows Terminal available at: $wtPath" -ForegroundColor Green
+    } else {
+        Write-Host "❌ Windows Terminal not available" -ForegroundColor Red
+    }
+    
+    # Provide recommendations
+    Write-Host ""
+    Write-Host "Recommendations:" -ForegroundColor Yellow
+    
+    if ($capabilities.SupportsSplitWindow) {
+        switch ($capabilities.TerminalType) {
+            "WindowsTerminal" {
+                Write-Host "  ✅ Use Start-SpotifyCliInSidecar for Windows Terminal split pane" -ForegroundColor Green
+            }
+            "VSCode" {
+                Write-Host "  ✅ Use Start-SpotifyCliInSidecar for VS Code terminal integration" -ForegroundColor Green
+            }
+        }
+    } else {
+        Write-Host "  💡 Use Start-SpotifyCliInSidecar -ForceNewWindow for new window launch" -ForegroundColor Cyan
+    }
+    
+    Write-Host ""
+    Write-Host "Test completed successfully!" -ForegroundColor Green
+}
+
+#endregion
+
 # Initialize custom aliases when module loads
 Initialize-SpotifyAliases
 
@@ -1612,6 +2409,9 @@ Export-ModuleMember -Function @(
     
     # Advanced controls
     'volume', 'seek', 'shuffle', 'repeat',
+    
+    # Podcast-specific controls
+    'skip-forward', 'skip-back', 'replay',
     
     # Device management
     'devices', 'transfer',
@@ -1633,6 +2433,13 @@ Export-ModuleMember -Function @(
     
     # Notifications
     'notifications', 'Show-TrackNotification', 'Test-NotificationSupport',
+    
+    # Window Management and Terminal Detection
+    'Get-TerminalCapabilities', 'Test-SplitWindowSupport', 'Get-WindowsTerminalPath', 'Show-TerminalCapabilities',
+    
+    # Sidecar and Split Window Launching
+    'Start-SpotifyCliInSidecar', 'Start-SpotifyCliInWindowsTerminalSplit', 'Start-SpotifyCliInVSCodeSplit', 
+    'Start-SpotifyCliInNewWindow', 'Test-SidecarLaunch',
     
     # Default aliases as functions
     'sp', 'spotify', 'vol', 'sh', 'rep', 'tr', 'q', 'pl'
