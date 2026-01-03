@@ -1,0 +1,70 @@
+{
+  "ReliabilityTests": {
+    "ErrorRecoveryTime": 88.5962,
+    "LongestSuccessStreak": 0,
+    "ConfigurationPersistence": true,
+    "ConsecutiveSuccesses": 0,
+    "SessionStateConsistency": true
+  },
+  "Issues": [
+    {
+      "Issue": "ERROR: The term 'Show-SpotifyTrack' is not recognized as a name of a cmdlet, function, script file, or executable program.\r\nCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.",
+      "Test": "Show current track",
+      "Details": ""
+    },
+    {
+      "Issue": "ERROR: The term 'Get-SpotifyHelp' is not recognized as a name of a cmdlet, function, script file, or executable program.\r\nCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.",
+      "Test": "Get help",
+      "Details": ""
+    },
+    {
+      "Issue": "ERROR: The term 'Get-SpotifyConfig' is not recognized as a name of a cmdlet, function, script file, or executable program.\r\nCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.",
+      "Test": "Get configuration",
+      "Details": ""
+    },
+    {
+      "Issue": "High API failure rate",
+      "Test": "API call success rate",
+      "Details": ""
+    },
+    {
+      "Issue": "Moderate memory growth detected",
+      "Test": "Memory growth",
+      "Details": ""
+    }
+  ],
+  "MemoryUsageTests": {
+    "InitialMemoryMB": 189.27,
+    "PeakMemoryMB": 204.75,
+    "FinalMemoryMB": 203.93,
+    "MemoryLeakDetected": false,
+    "MemoryGrowthMB": 7.030000000000001,
+    "GarbageCollections": 1
+  },
+  "ApiResponseTests": {
+    "FailedCalls": 3,
+    "AverageResponseTime": 0,
+    "ResponseTimes": [],
+    "SuccessfulCalls": 0,
+    "TimeoutCalls": 0,
+    "MaxResponseTime": 0,
+    "MinResponseTime": 999999
+  },
+  "ModuleLoadingTests": {
+    "ImportMemoryUsage": 2.9899999999999807,
+    "ImportTime": 51.1881,
+    "ReImportTime": 34.4291,
+    "FunctionCount": 81
+  },
+  "TestConfiguration": {
+    "DurationMinutes": 2,
+    "OSVersion": "Microsoft Windows NT 10.0.26100.0",
+    "PowerShellVersion": "7.5.3",
+    "EndTime": "2025-10-07T17:20:23.2599982+02:00",
+    "StartTime": "2025-10-07T17:18:19.6516092+02:00",
+    "OperationsPerMinute": 6
+  },
+  "Recommendations": [
+    "Improve error handling and retry logic for API calls"
+  ]
+}

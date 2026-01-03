@@ -1,0 +1,754 @@
+{
+  "TestDetails": [
+    {
+      "Details": "",
+      "Name": "SpotifyModule availability",
+      "Issue": "SpotifyModule not found in module path",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.1465182+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "SpotifyModule import",
+      "Issue": "Failed to import module: The specified module 'SpotifyModule' was not loaded because no valid module file was found in any module directory.",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.1591734+02:00"
+    },
+    {
+      "Details": "spotifyCLI.ps1 found",
+      "Name": "Main CLI script existence",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:48.1626533+02:00"
+    },
+    {
+      "Details": ".env file found",
+      "Name": ".env file existence",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:48.1670037+02:00"
+    },
+    {
+      "Details": "Required credentials found",
+      "Name": ".env file content",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:48.1711969+02:00"
+    },
+    {
+      "Details": "Directory exists at: C:\\Users\\tommy\\AppData\\Roaming\\SpotifyCLI",
+      "Name": "Token storage directory",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:48.1734372+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Authentication function",
+      "Issue": "Connect-Spotify function not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.2210432+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Show-SpotifyTrack",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.2644344+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Start-SpotifyPlayback",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.3050348+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Stop-SpotifyPlayback",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.3458161+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Skip-SpotifyTrack",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.387574+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Skip-SpotifyTrackBack",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.4317395+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Set-SpotifyVolume",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.4717979+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Set-SpotifySeek",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.5121374+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Set-SpotifyShuffle",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.5534701+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Set-SpotifyRepeat",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.592376+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Get-SpotifyDevices",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.6369746+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Set-SpotifyDevice",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.6823725+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Search-Spotify",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.7301219+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Get-SpotifyPlaylists",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.7749012+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Get-SpotifyQueue",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.8164865+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Get-SpotifyHelp",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.8597344+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Get-SpotifyConfig",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9010863+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Command: Set-SpotifyConfig",
+      "Issue": "Function not found or not exported",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9416307+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: rep",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9482606+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: spotify",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9491437+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: search",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9500873+02:00"
+    },
+    {
+      "Details": "Points to Set-ItemProperty",
+      "Name": "Alias: sp",
+      "Issue": "Expected Show-SpotifyTrack",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9540158+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: previous",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9555858+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: pn",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9565878+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: music",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.957494+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: volume",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9583373+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: play",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9593972+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: help",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.960649+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: plays-now",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9620524+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: pause",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9633781+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: playlists",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9646302+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: pl",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9656551+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: repeat",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9665702+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: devices",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9674487+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: shuffle",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9688262+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: queue",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9701435+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: spotify-help",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9716556+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: sh",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9726502+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: transfer",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9737024+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: seek",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9747887+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: next",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9761186+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: q",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9773589+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: tr",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9788749+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: search-albums",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9801995+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Alias: vol",
+      "Issue": "Alias not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:48.9813918+02:00"
+    },
+    {
+      "Details": "Directory exists at: C:\\Users\\tommy\\AppData\\Roaming\\SpotifyCLI",
+      "Name": "Configuration directory",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:48.989963+02:00"
+    },
+    {
+      "Details": "config.json exists",
+      "Name": "Configuration file",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:48.991441+02:00"
+    },
+    {
+      "Details": "Config file is valid JSON",
+      "Name": "Configuration parsing",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.0002844+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Get-SpotifyConfig function",
+      "Issue": "Function not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:49.0512414+02:00"
+    },
+    {
+      "Details": "",
+      "Name": "Set-SpotifyConfig function",
+      "Issue": "Function not found",
+      "Status": "FAIL",
+      "Timestamp": "2025-10-07T17:14:49.1066256+02:00"
+    },
+    {
+      "Details": "spotifyCLI.ps1 exists",
+      "Name": "CLI script file",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1126055+02:00"
+    },
+    {
+      "Details": "Script has valid PowerShell syntax",
+      "Name": "CLI script syntax",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1435758+02:00"
+    },
+    {
+      "Details": "Install-SpotifyCliDependencies.ps1 exists",
+      "Name": "Installation script",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1481563+02:00"
+    },
+    {
+      "Details": "Script has valid syntax",
+      "Name": "Installation script syntax",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1670654+02:00"
+    },
+    {
+      "Details": "Uninstall-SpotifyCli.ps1 exists",
+      "Name": "Uninstallation script",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1689169+02:00"
+    },
+    {
+      "Details": "Script has valid syntax",
+      "Name": "Uninstallation script syntax",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1740795+02:00"
+    },
+    {
+      "Details": "README.md exists",
+      "Name": "README.md file",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1792999+02:00"
+    },
+    {
+      "Details": "Section found in README",
+      "Name": "README section: Installation",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1831524+02:00"
+    },
+    {
+      "Details": "Section found in README",
+      "Name": "README section: Authentication",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1845958+02:00"
+    },
+    {
+      "Details": "Section found in README",
+      "Name": "README section: Commands",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.1861078+02:00"
+    },
+    {
+      "Details": "Section found in README",
+      "Name": "README section: Usage",
+      "Issue": "",
+      "Status": "PASS",
+      "Timestamp": "2025-10-07T17:14:49.187987+02:00"
+    },
+    {
+      "Details": "Function not available for testing",
+      "Name": "Error handling: Show-SpotifyTrack",
+      "Issue": "",
+      "Status": "SKIP",
+      "Timestamp": "2025-10-07T17:14:49.2463403+02:00"
+    },
+    {
+      "Details": "Function not available for testing",
+      "Name": "Error handling: Start-SpotifyPlayback",
+      "Issue": "",
+      "Status": "SKIP",
+      "Timestamp": "2025-10-07T17:14:49.3035701+02:00"
+    },
+    {
+      "Details": "Function not available for testing",
+      "Name": "Error handling: Get-SpotifyDevices",
+      "Issue": "",
+      "Status": "SKIP",
+      "Timestamp": "2025-10-07T17:14:49.3572609+02:00"
+    },
+    {
+      "Details": "Function not available for testing",
+      "Name": "Error handling: Search-Spotify",
+      "Issue": "",
+      "Status": "SKIP",
+      "Timestamp": "2025-10-07T17:14:49.4147357+02:00"
+    }
+  ],
+  "FailedTests": 49,
+  "SkippedTests": 4,
+  "Issues": [
+    {
+      "Issue": "SpotifyModule not found in module path",
+      "Test": "SpotifyModule availability",
+      "Details": ""
+    },
+    {
+      "Issue": "Failed to import module: The specified module 'SpotifyModule' was not loaded because no valid module file was found in any module directory.",
+      "Test": "SpotifyModule import",
+      "Details": ""
+    },
+    {
+      "Issue": "Connect-Spotify function not found",
+      "Test": "Authentication function",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Show-SpotifyTrack",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Start-SpotifyPlayback",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Stop-SpotifyPlayback",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Skip-SpotifyTrack",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Skip-SpotifyTrackBack",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Set-SpotifyVolume",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Set-SpotifySeek",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Set-SpotifyShuffle",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Set-SpotifyRepeat",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Get-SpotifyDevices",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Set-SpotifyDevice",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Search-Spotify",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Get-SpotifyPlaylists",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Get-SpotifyQueue",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Get-SpotifyHelp",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Get-SpotifyConfig",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found or not exported",
+      "Test": "Command: Set-SpotifyConfig",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: rep",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: spotify",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: search",
+      "Details": ""
+    },
+    {
+      "Issue": "Expected Show-SpotifyTrack",
+      "Test": "Alias: sp",
+      "Details": "Points to Set-ItemProperty"
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: previous",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: pn",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: music",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: volume",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: play",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: help",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: plays-now",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: pause",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: playlists",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: pl",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: repeat",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: devices",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: shuffle",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: queue",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: spotify-help",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: sh",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: transfer",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: seek",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: next",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: q",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: tr",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: search-albums",
+      "Details": ""
+    },
+    {
+      "Issue": "Alias not found",
+      "Test": "Alias: vol",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found",
+      "Test": "Get-SpotifyConfig function",
+      "Details": ""
+    },
+    {
+      "Issue": "Function not found",
+      "Test": "Set-SpotifyConfig function",
+      "Details": ""
+    }
+  ],
+  "StartTime": "2025-10-07T17:14:48.102425+02:00",
+  "PassedTests": 18,
+  "TotalTests": 71,
+  "EndTime": "2025-10-07T17:14:49.4197592+02:00"
+}

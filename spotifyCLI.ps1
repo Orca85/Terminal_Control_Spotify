@@ -17,6 +17,12 @@ Force launch in a new window instead of split window
 .PARAMETER SplitDirection
 Direction for split window (right, down, left, up). Only applies to Windows Terminal.
 
+.PARAMETER Live
+Launch directly into live display mode with real-time track updates
+
+.PARAMETER LiveMode
+Display mode for live view (detailed, compact, minimal). Only applies when -Live is used.
+
 .EXAMPLE
 .\spotifyCLI.ps1
 Launch normally in current terminal
@@ -32,14 +38,25 @@ Force launch in new window
 .EXAMPLE
 .\spotifyCLI.ps1 -Sidecar -SplitDirection down
 Launch in Windows Terminal split pane below current pane
+
+.EXAMPLE
+.\spotifyCLI.ps1 -Live
+Launch directly into live display mode with detailed view
+
+.EXAMPLE
+.\spotifyCLI.ps1 -Live -LiveMode compact
+Launch into live display mode with compact single-line view
 #>
 
 [CmdletBinding()]
 param(
     [switch]$Sidecar,
     [switch]$NewWindow,
+    [switch]$Live,
     [ValidateSet("right", "down", "left", "up")]
-    [string]$SplitDirection = "right"
+    [string]$SplitDirection = "right",
+    [ValidateSet("detailed", "compact", "minimal")]
+    [string]$LiveMode = "detailed"
 )
 
 #region Konfiguration
@@ -355,8 +372,16 @@ function Start-SpotifyAuth {
     $state = [Guid]::NewGuid().ToString()
     $authUrl = "https://accounts.spotify.com/authorize?response_type=code&client_id=$ClientId&redirect_uri=$RedirectUri&scope=$Scopes&state=$State"
 
-    Start-Process $authUrl | Out-Null
-    Write-Host "Öppnade webbläsaren. Logga in och godkänn appen..."
+    try {
+        Start-Process $authUrl -ErrorAction Stop | Out-Null
+        Write-Host "✅ Browser opened for Spotify authentication" -ForegroundColor Green
+        Write-Host "Please log in and authorize the application in your browser..." -ForegroundColor Cyan
+    } catch {
+        Write-Host "⚠️ Could not automatically open browser" -ForegroundColor Yellow
+        Write-Host "Please manually open this URL in your browser:" -ForegroundColor Cyan
+        Write-Host $authUrl -ForegroundColor White
+        Write-Host "Then return here to complete authentication..." -ForegroundColor Cyan
+    }
 
     # Vänta på callback
     $context = $listener.GetContext()
@@ -914,7 +939,7 @@ function Show-UnknownCommand {
     $availableCommands = @(
         "spotify", "next", "pause", "play", "previous", "seek", "volume", "shuffle", "repeat",
         "devices", "transfer", "search", "queue", "playlists", "liked", "recent", "save", "unsave",
-        "config", "help", "history", "notifications", "auto-refresh", "quit", "exit"
+        "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quit", "exit"
     )
     
     Write-Host "❓ Unknown Command: $Command" -ForegroundColor Red
@@ -982,8 +1007,13 @@ function Invoke-HelpCommand {
         Write-Host "  /save              - Add current track to liked songs" -ForegroundColor White
         Write-Host "  /unsave            - Remove current track from liked songs" -ForegroundColor White
         Write-Host ""
+        Write-Host "LIVE FEATURES:" -ForegroundColor Yellow
+        Write-Host "  /live [mode]       - Start live display mode (detailed/compact/minimal)" -ForegroundColor White
+        Write-Host "  /sidecar [options] - Launch CLI in split window/sidecar mode" -ForegroundColor White
+        Write-Host ""
         Write-Host "SYSTEM COMMANDS:" -ForegroundColor Yellow
         Write-Host "  /config [key] [value] - View/modify configuration" -ForegroundColor White
+        Write-Host "  /config-live [command] - Manage live features configuration" -ForegroundColor White
         Write-Host "  /history           - Show playback history" -ForegroundColor White
         Write-Host "  /notifications <on|off> - Toggle notifications" -ForegroundColor White
         Write-Host "  /auto-refresh <seconds> - Auto-refresh display every X seconds" -ForegroundColor White
@@ -1278,6 +1308,31 @@ function Invoke-HelpCommand {
             Write-Host "  /config CompactMode true" -ForegroundColor Gray
             Write-Host "  /config Colors.Playing Blue" -ForegroundColor Gray
             Write-Host "  /config AutoRefreshInterval 5" -ForegroundColor Gray
+        }
+        "config-live" {
+            Write-Host "COMMAND: /config-live [command] [arguments]" -ForegroundColor Cyan
+            Write-Host "=========================================" -ForegroundColor Cyan
+            Write-Host "Manage live features configuration (display, lyrics, statistics)." -ForegroundColor White
+            Write-Host ""
+            Write-Host "USAGE:" -ForegroundColor Yellow
+            Write-Host "  /config-live show                    - Show current live features config" -ForegroundColor White
+            Write-Host "  /config-live set <section.key=value> - Set configuration value" -ForegroundColor White
+            Write-Host "  /config-live reset [section]         - Reset to defaults" -ForegroundColor White
+            Write-Host "  /config-live schema [section]        - Show valid settings" -ForegroundColor White
+            Write-Host "  /config-live backup                  - Create configuration backup" -ForegroundColor White
+            Write-Host "  /config-live info                    - Show system information" -ForegroundColor White
+            Write-Host ""
+            Write-Host "EXAMPLES:" -ForegroundColor Yellow
+            Write-Host "  /config-live set liveDisplay.refreshInterval=1500" -ForegroundColor Gray
+            Write-Host "  /config-live set lyrics.preferredProvider=genius" -ForegroundColor Gray
+            Write-Host "  /config-live reset liveDisplay" -ForegroundColor Gray
+            Write-Host "  /config-live schema lyrics" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "SECTIONS:" -ForegroundColor Yellow
+            Write-Host "  liveDisplay - Real-time display settings" -ForegroundColor White
+            Write-Host "  lyrics      - Lyrics fetching and display" -ForegroundColor White
+            Write-Host "  statistics  - Data collection and analytics" -ForegroundColor White
+            Write-Host "  apiClient   - API client configuration" -ForegroundColor White
             Write-Host ""
             Write-Host "MAIN SETTINGS:" -ForegroundColor Yellow
             Write-Host "  CompactMode, NotificationsEnabled, LoggingEnabled" -ForegroundColor Gray
@@ -1342,6 +1397,68 @@ function Invoke-HelpCommand {
             Write-Host ""
             Write-Host "NOTE: Can also be configured via /config AutoRefreshInterval <seconds>" -ForegroundColor Gray
         }
+        "live" {
+            Write-Host "COMMAND: /live [mode]" -ForegroundColor Cyan
+            Write-Host "====================" -ForegroundColor Cyan
+            Write-Host "Start real-time live display mode with continuous track updates." -ForegroundColor White
+            Write-Host ""
+            Write-Host "USAGE:" -ForegroundColor Yellow
+            Write-Host "  /live              - Start live display in detailed mode" -ForegroundColor White
+            Write-Host "  /live detailed     - Start with detailed track information" -ForegroundColor White
+            Write-Host "  /live compact      - Start with compact single-line display" -ForegroundColor White
+            Write-Host "  /live minimal      - Start with minimal display" -ForegroundColor White
+            Write-Host ""
+            Write-Host "EXAMPLES:" -ForegroundColor Yellow
+            Write-Host "  /live" -ForegroundColor Gray
+            Write-Host "  /live compact" -ForegroundColor Gray
+            Write-Host "  /live minimal" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "FEATURES:" -ForegroundColor Yellow
+            Write-Host "  - Real-time track information updates" -ForegroundColor Gray
+            Write-Host "  - Animated progress bar" -ForegroundColor Gray
+            Write-Host "  - Automatic refresh every second" -ForegroundColor Gray
+            Write-Host "  - Graceful exit with Ctrl+C" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "STARTUP OPTION:" -ForegroundColor Yellow
+            Write-Host "  You can also start the CLI directly in live mode:" -ForegroundColor Gray
+            Write-Host "  .\\spotifyCLI.ps1 -Live -LiveMode compact" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
+            Write-Host "  - Active Spotify device with current playback" -ForegroundColor Gray
+            Write-Host "  - Terminal that supports ANSI escape codes (recommended)" -ForegroundColor Gray
+        }
+        "sidecar" {
+            Write-Host "COMMAND: /sidecar [options]" -ForegroundColor Cyan
+            Write-Host "=========================" -ForegroundColor Cyan
+            Write-Host "Launch Spotify CLI in a split window or sidecar mode." -ForegroundColor White
+            Write-Host ""
+            Write-Host "USAGE:" -ForegroundColor Yellow
+            Write-Host "  /sidecar           - Launch in sidecar with default settings" -ForegroundColor White
+            Write-Host "  /sidecar live      - Launch sidecar in live display mode" -ForegroundColor White
+            Write-Host "  /sidecar compact   - Launch sidecar with compact live display" -ForegroundColor White
+            Write-Host "  /sidecar right     - Launch sidecar split to the right" -ForegroundColor White
+            Write-Host "  /sidecar down live - Launch sidecar below with live mode" -ForegroundColor White
+            Write-Host ""
+            Write-Host "EXAMPLES:" -ForegroundColor Yellow
+            Write-Host "  /sidecar" -ForegroundColor Gray
+            Write-Host "  /sidecar live" -ForegroundColor Gray
+            Write-Host "  /sidecar compact right" -ForegroundColor Gray
+            Write-Host "  /sidecar down minimal" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "OPTIONS:" -ForegroundColor Yellow
+            Write-Host "  Live Modes: detailed, compact, minimal" -ForegroundColor Gray
+            Write-Host "  Split Directions: right, down, left, up" -ForegroundColor Gray
+            Write-Host "  Keywords: live (enables live display mode)" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "STARTUP OPTIONS:" -ForegroundColor Yellow
+            Write-Host "  You can also start directly in sidecar mode:" -ForegroundColor Gray
+            Write-Host "  .\\spotifyCLI.ps1 -Sidecar -Live -LiveMode compact" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "SUPPORTED TERMINALS:" -ForegroundColor Yellow
+            Write-Host "  - Windows Terminal (recommended)" -ForegroundColor Gray
+            Write-Host "  - VS Code integrated terminal" -ForegroundColor Gray
+            Write-Host "  - Falls back to new window if split not supported" -ForegroundColor Gray
+        }
         "quit" {
             Write-Host "COMMAND: /quit" -ForegroundColor Cyan
             Write-Host "=============" -ForegroundColor Cyan
@@ -1363,7 +1480,7 @@ function Invoke-HelpCommand {
                 "spotify", "seek", "volume", "shuffle", "repeat",
                 "devices", "transfer", "search", "queue", "play",
                 "playlists", "liked", "recent", "save", "unsave",
-                "config", "history", "notifications", "auto-refresh", "quit"
+                "config", "config-live", "history", "notifications", "auto-refresh", "live", "sidecar", "quit"
             )
             $availableCommands | ForEach-Object {
                 Write-Host "  /help $_" -ForegroundColor Gray
@@ -1491,6 +1608,198 @@ function Invoke-ConfigCommand {
         Write-Host "Configuration updated: $key = $value" -ForegroundColor Green
     }
 }
+
+function Invoke-LiveFeaturesConfigCommand {
+    param([string]$Arguments)
+    
+    # Import the configuration modules if not already loaded
+    $configModulePath = Join-Path $PSScriptRoot "modules\Core\ConfigurationCommands.psm1"
+    if (Test-Path $configModulePath) {
+        try {
+            Import-Module $configModulePath -Force -Global -ErrorAction SilentlyContinue
+        } catch {
+            Write-Warning "Could not load live features configuration module: $($_.Exception.Message)"
+            Write-Host "Live features configuration is not available." -ForegroundColor Yellow
+            return
+        }
+    } else {
+        Write-Host "Live features configuration module not found." -ForegroundColor Yellow
+        Write-Host "Please ensure the live features modules are properly installed." -ForegroundColor Gray
+        return
+    }
+    
+    if ([string]::IsNullOrWhiteSpace($Arguments)) {
+        # Show current live features configuration
+        try {
+            Get-LiveFeaturesConfig
+        } catch {
+            Write-Warning "Failed to load live features configuration: $($_.Exception.Message)"
+            Write-Host "💡 Try running: /config-live info" -ForegroundColor Yellow
+        }
+        return
+    }
+    
+    # Parse arguments
+    $argParts = $Arguments.Trim() -split '\s+', 2
+    $command = $argParts[0].ToLower()
+    $commandArgs = if ($argParts.Length -gt 1) { $argParts[1] } else { "" }
+    
+    try {
+        switch ($command) {
+            "show" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Get-LiveFeaturesConfig
+                } else {
+                    $parts = $commandArgs -split '\.'
+                    if ($parts.Length -eq 1) {
+                        Get-LiveFeaturesConfig -Section $parts[0]
+                    } elseif ($parts.Length -eq 2) {
+                        Get-LiveFeaturesConfig -Section $parts[0] -Key $parts[1]
+                    } else {
+                        Write-Error "Invalid format. Use 'section' or 'section.key'"
+                    }
+                }
+            }
+            
+            "set" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Write-Error "Missing arguments. Use format: section.key=value"
+                    Write-Host "Example: /config-live set liveDisplay.refreshInterval=1500" -ForegroundColor Gray
+                    return
+                }
+                
+                if ($commandArgs -match '^([^.]+)\.([^=]+)=(.+)$') {
+                    $section = $matches[1]
+                    $key = $matches[2]
+                    $valueStr = $matches[3]
+                    
+                    # Parse value based on type
+                    $value = ConvertTo-ConfigValue -ValueString $valueStr
+                    
+                    Set-LiveFeaturesConfig -Section $section -Key $key -Value $value
+                } else {
+                    Write-Error "Invalid format. Use: section.key=value"
+                    Write-Host "Example: /config-live set liveDisplay.refreshInterval=1500" -ForegroundColor Gray
+                }
+            }
+            
+            "reset" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Reset-LiveFeaturesConfig
+                } else {
+                    Reset-LiveFeaturesConfig -Section $commandArgs
+                }
+            }
+            
+            "schema" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Get-LiveFeaturesConfigSchema
+                } else {
+                    Get-LiveFeaturesConfigSchema -Section $commandArgs
+                }
+            }
+            
+            "backup" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Backup-LiveFeaturesConfig
+                } else {
+                    Backup-LiveFeaturesConfig -Path $commandArgs
+                }
+            }
+            
+            "restore" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Write-Error "Missing backup file path"
+                    Write-Host "Usage: /config-live restore <backup-file-path>" -ForegroundColor Gray
+                } else {
+                    Restore-LiveFeaturesConfig -Path $commandArgs
+                }
+            }
+            
+            "export" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Export-LiveFeaturesConfig
+                } else {
+                    Export-LiveFeaturesConfig -Path $commandArgs
+                }
+            }
+            
+            "import" {
+                if ([string]::IsNullOrWhiteSpace($commandArgs)) {
+                    Write-Error "Missing configuration file path"
+                    Write-Host "Usage: /config-live import <config-file-path>" -ForegroundColor Gray
+                } else {
+                    Import-LiveFeaturesConfig -Path $commandArgs
+                }
+            }
+            
+            "test" {
+                Test-LiveFeaturesConfig
+            }
+            
+            "info" {
+                Get-LiveFeaturesConfigInfo
+            }
+            
+            "help" {
+                Write-Host "Live Features Configuration Commands" -ForegroundColor Cyan
+                Write-Host "====================================" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "COMMANDS:" -ForegroundColor Yellow
+                Write-Host "  show [section[.key]]     - Display configuration" -ForegroundColor White
+                Write-Host "  set section.key=value    - Set configuration value" -ForegroundColor White
+                Write-Host "  reset [section]          - Reset to defaults" -ForegroundColor White
+                Write-Host "  schema [section]         - Show valid settings" -ForegroundColor White
+                Write-Host "  backup [path]            - Create backup" -ForegroundColor White
+                Write-Host "  restore <path>           - Restore from backup" -ForegroundColor White
+                Write-Host "  export [path]            - Export configuration" -ForegroundColor White
+                Write-Host "  import <path>            - Import configuration" -ForegroundColor White
+                Write-Host "  test                     - Validate configuration" -ForegroundColor White
+                Write-Host "  info                     - Show system information" -ForegroundColor White
+                Write-Host "  help                     - Show this help" -ForegroundColor White
+                Write-Host ""
+                Write-Host "EXAMPLES:" -ForegroundColor Yellow
+                Write-Host "  /config-live show" -ForegroundColor Gray
+                Write-Host "  /config-live set liveDisplay.refreshInterval=1500" -ForegroundColor Gray
+                Write-Host "  /config-live reset liveDisplay" -ForegroundColor Gray
+                Write-Host "  /config-live backup" -ForegroundColor Gray
+            }
+            
+            default {
+                Write-Error "Unknown command: $command"
+                Write-Host "Use '/config-live help' to see available commands" -ForegroundColor Yellow
+            }
+        }
+    } catch {
+        Write-Error "Live features configuration command failed: $($_.Exception.Message)"
+        Write-Host "💡 Use '/config-live info' to check system status" -ForegroundColor Yellow
+    }
+}
+
+function ConvertTo-ConfigValue {
+    <#
+    .SYNOPSIS
+    Convert string value to appropriate type for configuration
+    #>
+    param([string]$ValueString)
+    
+    # Try to parse as boolean
+    if ($ValueString -eq "true" -or $ValueString -eq "True" -or $ValueString -eq "TRUE") {
+        return $true
+    }
+    if ($ValueString -eq "false" -or $ValueString -eq "False" -or $ValueString -eq "FALSE") {
+        return $false
+    }
+    
+    # Try to parse as integer
+    if ($ValueString -match '^\d+$') {
+        return [int]$ValueString
+    }
+    
+    # Return as string
+    return $ValueString
+}
+
 #endregion Hjälpfunktioner
 
 #region Spotify-kommandon
@@ -2800,6 +3109,382 @@ function Stop-AutoRefresh {
 }
 
 #region CLI-loop
+function Invoke-LyricsCommand {
+    <#
+    .SYNOPSIS
+    Display lyrics for the currently playing track or a specified track with interactive scrollable display
+    .PARAMETER Arguments
+    Optional arguments: artist and track name, or empty for current track. Use -interactive or -i for scrollable display
+    #>
+    param([string]$Arguments)
+    
+    try {
+        # Import lyrics engine directly
+        $lyricsModulePath = Join-Path $PSScriptRoot "modules\Lyrics\LyricsEngine.psm1"
+        if (-not (Test-Path $lyricsModulePath)) {
+            Write-Host "❌ Lyrics module not found at: $lyricsModulePath" -ForegroundColor Red
+            Write-Host "💡 Lyrics functionality requires the lyrics module" -ForegroundColor Yellow
+            return
+        }
+        
+        # Import the lyrics module
+        Import-Module $lyricsModulePath -Force -ErrorAction Stop
+        
+        # Parse arguments for interactive mode flag
+        $interactive = $false
+        $cleanArgs = $Arguments
+        if ($Arguments -match '\s*-i(nteractive)?\s*') {
+            $interactive = $true
+            $cleanArgs = $Arguments -replace '\s*-i(nteractive)?\s*', ''
+        }
+        
+        # Create lyrics manager with default configuration
+        $config = @{
+            CacheDirectory = Join-Path $env:APPDATA "SpotifyCLI\Lyrics"
+        }
+        $lyricsManager = New-LyricsManager -Configuration $config
+        
+        if ([string]::IsNullOrWhiteSpace($cleanArgs)) {
+            # Get lyrics for current track
+            Write-Host "🎵 Fetching lyrics for current track..." -ForegroundColor Cyan
+            
+            # Get current track info
+            $currentTrack = $null
+            try {
+                $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            } catch {
+                Write-Host "❌ Could not get current track information" -ForegroundColor Red
+                Write-Host "💡 Make sure Spotify is playing and you're authenticated" -ForegroundColor Yellow
+                return
+            }
+            
+            if (-not $currentTrack -or -not $currentTrack.item) {
+                Write-Host "❌ No track currently playing" -ForegroundColor Red
+                Write-Host "💡 Start playing a track in Spotify first" -ForegroundColor Yellow
+                return
+            }
+            
+            $track = $currentTrack.item
+            $artist = ($track.artists | ForEach-Object { $_.name }) -join ", "
+            $lyricsResult = $lyricsManager.GetLyrics($artist, $track.name)
+            
+        } else {
+            # Parse artist and track from arguments
+            $parts = $cleanArgs.Trim() -split '\s+', 2
+            if ($parts.Length -lt 2) {
+                Write-Host "❌ Please provide both artist and track name" -ForegroundColor Red
+                Write-Host "💡 Usage: lyrics <artist> <track> [-interactive]" -ForegroundColor Yellow
+                Write-Host "💡 Example: lyrics Queen 'Bohemian Rhapsody'" -ForegroundColor Yellow
+                Write-Host "💡 Example: lyrics Queen 'Bohemian Rhapsody' -i" -ForegroundColor Yellow
+                Write-Host "💡 Or use: lyrics (for current track)" -ForegroundColor Yellow
+                return
+            }
+            
+            $artist = $parts[0]
+            $track = $parts[1]
+            Write-Host "🎵 Fetching lyrics for '$track' by $artist..." -ForegroundColor Cyan
+            $lyricsResult = $lyricsManager.GetLyrics($artist, $track)
+            $currentTrack = $null  # No position info for manual searches
+        }
+        
+        if (-not $lyricsResult.Success) {
+            Write-Host "❌ Could not fetch lyrics: $($lyricsResult.Error)" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "🔧 POSSIBLE REASONS:" -ForegroundColor Yellow
+            Write-Host "• Lyrics not available for this track" -ForegroundColor White
+            Write-Host "• No current track playing (if using without arguments)" -ForegroundColor White
+            Write-Host "• Network connectivity issues" -ForegroundColor White
+            Write-Host "• Lyrics provider API limitations" -ForegroundColor White
+            Write-Host ""
+            Write-Host "💡 TIP: Try using mock provider for testing: lyrics 'Test Artist' 'Test Track'" -ForegroundColor Cyan
+            return
+        }
+        
+        # Check if interactive mode is requested and supported
+        if ($interactive) {
+            try {
+                # Test if console supports interactive input
+                $canUseInteractive = $true
+                try {
+                    $null = [Console]::KeyAvailable
+                    $null = [Console]::CursorVisible
+                } catch {
+                    $canUseInteractive = $false
+                }
+                
+                if ($canUseInteractive) {
+                    Write-Host "🎮 Starting interactive lyrics viewer..." -ForegroundColor Cyan
+                    Write-Host "Use ↑↓ to scroll, / to search, T to toggle timestamps, Esc to exit" -ForegroundColor Gray
+                    Write-Host ""
+                    
+                    # Get current position if available
+                    $currentPositionMs = 0
+                    if ($currentTrack -and $currentTrack.progress_ms) {
+                        $currentPositionMs = $currentTrack.progress_ms
+                    }
+                    
+                    # Start interactive viewer
+                    Show-Lyrics -LyricsData $lyricsResult -InitialPositionMs $currentPositionMs
+                    return
+                } else {
+                    Write-Host "⚠️ Interactive mode not supported in this environment" -ForegroundColor Yellow
+                    Write-Host "💡 Falling back to static display" -ForegroundColor Cyan
+                }
+            } catch {
+                Write-Host "⚠️ Interactive mode failed: $($_.Exception.Message)" -ForegroundColor Yellow
+                Write-Host "💡 Falling back to static display" -ForegroundColor Cyan
+            }
+        }
+        
+        # Static display mode with synchronized highlighting
+        Write-Host ""
+        Write-Host "🎵 Lyrics" -ForegroundColor Cyan
+        Write-Host "========" -ForegroundColor Cyan
+        Write-Host ""
+        
+        if ($lyricsResult.TrackId) {
+            Write-Host "Track: $($lyricsResult.TrackId)" -ForegroundColor Yellow
+        }
+        
+        if ($lyricsResult.Source) {
+            Write-Host "Source: $($lyricsResult.Source)" -ForegroundColor Gray
+        }
+        
+        Write-Host ""
+        
+        if ($lyricsResult.HasSyncedLyrics -and $lyricsResult.SyncedLines) {
+            # Display synced lyrics with timestamps and current line highlighting
+            Write-Host "📝 Synced Lyrics:" -ForegroundColor Green
+            Write-Host ""
+            
+            $currentPositionMs = 0
+            if ($currentTrack -and $currentTrack.progress_ms) {
+                $currentPositionMs = $currentTrack.progress_ms
+            }
+            
+            # Find current line for highlighting
+            $currentLineIndex = -1
+            if ($currentPositionMs -gt 0) {
+                for ($i = $lyricsResult.SyncedLines.Count - 1; $i -ge 0; $i--) {
+                    if ($lyricsResult.SyncedLines[$i].Timestamp -le $currentPositionMs) {
+                        $currentLineIndex = $i
+                        break
+                    }
+                }
+            }
+            
+            for ($i = 0; $i -lt $lyricsResult.SyncedLines.Count; $i++) {
+                $line = $lyricsResult.SyncedLines[$i]
+                
+                # Handle timestamp formatting safely
+                try {
+                    $timestampValue = $line.Timestamp
+                    if ($timestampValue -is [string]) {
+                        $timestampValue = [int]$timestampValue
+                    }
+                    $timestamp = Format-LyricsTimestamp -TimestampMs $timestampValue
+                } catch {
+                    $timestamp = "00:00"
+                }
+                
+                if ($i -eq $currentLineIndex) {
+                    # Highlight current line
+                    Write-Host "► [$timestamp] " -NoNewline -ForegroundColor Yellow
+                    Write-Host $line.Text -ForegroundColor Yellow
+                } else {
+                    Write-Host "  [$timestamp] " -NoNewline -ForegroundColor Gray
+                    Write-Host $line.Text -ForegroundColor White
+                }
+            }
+            
+            if ($currentLineIndex -ge 0) {
+                Write-Host ""
+                Write-Host "► Currently at line $(($currentLineIndex + 1)) of $($lyricsResult.SyncedLines.Count)" -ForegroundColor Cyan
+            }
+            
+        } elseif ($lyricsResult.FullText) {
+            # Display plain text lyrics
+            Write-Host "📝 Lyrics:" -ForegroundColor Green
+            Write-Host ""
+            
+            $lines = $lyricsResult.FullText -split "`n"
+            foreach ($line in $lines) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    Write-Host $line.Trim() -ForegroundColor White
+                }
+            }
+        } else {
+            Write-Host "❌ No lyrics content available" -ForegroundColor Red
+        }
+        
+        Write-Host ""
+        Write-Host "💡 TIPS:" -ForegroundColor Cyan
+        Write-Host "• Use 'lyrics <artist> <track>' to get lyrics for a specific song" -ForegroundColor White
+        Write-Host "• Use 'lyrics -interactive' or 'lyrics -i' for scrollable display" -ForegroundColor White
+        Write-Host "• Synchronized highlighting shows current line for playing tracks" -ForegroundColor White
+        
+    } catch {
+        Write-Host "❌ Lyrics command error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Make sure the lyrics module is properly installed" -ForegroundColor Yellow
+        Write-Host "💡 Try: lyrics 'Test Artist' 'Test Track' (uses mock provider)" -ForegroundColor Yellow
+    }
+}
+
+function Format-LyricsTimestamp {
+    <#
+    .SYNOPSIS
+    Format timestamp in milliseconds to MM:SS format
+    .PARAMETER TimestampMs
+    Timestamp in milliseconds
+    #>
+    param([int]$TimestampMs)
+    
+    $totalSeconds = [Math]::Floor($TimestampMs / 1000)
+    $minutes = [Math]::Floor($totalSeconds / 60)
+    $seconds = $totalSeconds % 60
+    return "{0:D2}:{1:D2}" -f $minutes, $seconds
+}
+
+function Invoke-SidecarCommand {
+    <#
+    .SYNOPSIS
+    Launch Spotify CLI in sidecar/split window mode
+    .PARAMETER Arguments
+    Optional arguments: live mode (detailed, compact, minimal) and split direction
+    #>
+    param([string]$Arguments)
+    
+    try {
+        # Parse arguments
+        $parts = if ($Arguments) { $Arguments.Trim() -split '\s+' } else { @() }
+        $liveMode = $null
+        $splitDirection = "right"
+        $startLive = $false
+        
+        foreach ($part in $parts) {
+            switch ($part.ToLower()) {
+                { $_ -in @("detailed", "compact", "minimal") } { 
+                    $liveMode = $_
+                    $startLive = $true
+                }
+                { $_ -in @("right", "down", "left", "up") } { 
+                    $splitDirection = $_
+                }
+                "live" { 
+                    $startLive = $true
+                    if (-not $liveMode) { $liveMode = "detailed" }
+                }
+            }
+        }
+        
+        # Import the SpotifyModule to get sidecar functions
+        $modulePath = Join-Path $PSScriptRoot "SpotifyModule.psm1"
+        if (-not (Test-Path $modulePath)) {
+            Write-Host "❌ SpotifyModule not found at: $modulePath" -ForegroundColor Red
+            Write-Host "💡 Sidecar functionality requires the SpotifyModule" -ForegroundColor Yellow
+            return
+        }
+        
+        Import-Module $modulePath -Force -ErrorAction Stop
+        
+        # Build command line arguments for sidecar
+        $sidecarArgs = @()
+        if ($startLive) {
+            $sidecarArgs += "-Live"
+            if ($liveMode -and $liveMode -ne "detailed") {
+                $sidecarArgs += "-LiveMode", $liveMode
+            }
+        }
+        
+        Write-Host "🪟 Launching Spotify CLI in sidecar mode..." -ForegroundColor Cyan
+        if ($startLive) {
+            Write-Host "🎵 Sidecar will start in live display mode ($liveMode)" -ForegroundColor Cyan
+        }
+        
+        $success = Start-SpotifyCliInSidecar -ScriptPath $PSCommandPath -SplitDirection $splitDirection -AdditionalArgs $sidecarArgs
+        
+        if ($success) {
+            Write-Host "✅ Spotify CLI launched successfully in sidecar" -ForegroundColor Green
+        } else {
+            Write-Host "❌ Failed to launch sidecar mode" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "🔧 TROUBLESHOOTING:" -ForegroundColor Yellow
+            Write-Host "• Make sure you're using Windows Terminal or VS Code" -ForegroundColor White
+            Write-Host "• Check that split window functionality is supported" -ForegroundColor White
+            Write-Host "• Try using 'Test-SplitWindowSupport' to check compatibility" -ForegroundColor White
+        }
+        
+    } catch {
+        Write-Host "❌ Sidecar command error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Make sure the SpotifyModule is properly installed" -ForegroundColor Yellow
+    }
+}
+
+function Invoke-LiveDisplayCommand {
+    <#
+    .SYNOPSIS
+    Start live display mode with real-time track updates
+    .PARAMETER Arguments
+    Optional arguments for display mode (detailed, compact, minimal)
+    #>
+    param([string]$Arguments)
+    
+    try {
+        # Parse display mode from arguments
+        $displayMode = "detailed"
+        if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
+            $mode = $Arguments.Trim().ToLower()
+            if ($mode -in @("detailed", "compact", "minimal")) {
+                $displayMode = $mode
+            }
+        }
+        
+        # Import live features module
+        $liveModulePath = Join-Path $PSScriptRoot "modules\SpotifyLiveFeatures.psm1"
+        if (-not (Test-Path $liveModulePath)) {
+            Write-Host "❌ Live features module not found at: $liveModulePath" -ForegroundColor Red
+            Write-Host "💡 Make sure the modules directory exists and contains the live features" -ForegroundColor Yellow
+            return
+        }
+        
+        Import-Module $liveModulePath -Force -ErrorAction Stop
+        
+        # Initialize live features
+        Write-Host "🎵 Initializing Spotify Live Features..." -ForegroundColor Cyan
+        Initialize-SpotifyLiveFeatures
+        
+        # Start live display
+        Write-Host "🚀 Starting live display mode ($displayMode)..." -ForegroundColor Green
+        Write-Host "Press Ctrl+C to exit live mode" -ForegroundColor Gray
+        Write-Host ""
+        
+        Start-SpotifyLiveDisplay -Mode $displayMode
+        
+    } catch [System.OperationCanceledException] {
+        Write-Host ""
+        Write-Host "✅ Live display stopped" -ForegroundColor Green
+    } catch {
+        Write-Host ""
+        Write-Host "❌ Live display error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 Make sure Spotify is running and you have an active device" -ForegroundColor Yellow
+        
+        # Provide troubleshooting information
+        Write-Host ""
+        Write-Host "🔧 TROUBLESHOOTING:" -ForegroundColor Yellow
+        Write-Host "• Ensure Spotify is open and playing music" -ForegroundColor White
+        Write-Host "• Check that you have an active Spotify device" -ForegroundColor White
+        Write-Host "• Verify your internet connection" -ForegroundColor White
+        Write-Host "• Try running 'spotify' command first to test connectivity" -ForegroundColor White
+    } finally {
+        # Cleanup
+        try {
+            Stop-SpotifyLiveFeatures
+        } catch {
+            # Ignore cleanup errors
+        }
+    }
+}
+
 function Invoke-SpotifyCommand {
     param([string]$Command)
 
@@ -2858,6 +3543,8 @@ function Invoke-SpotifyCommand {
         "/recent" { Invoke-RecentCommand }
         "config" { Invoke-ConfigCommand $args }
         "/config" { Invoke-ConfigCommand $args }
+        "config-live" { Invoke-LiveFeaturesConfigCommand $args }
+        "/config-live" { Invoke-LiveFeaturesConfigCommand $args }
         "help" { Invoke-HelpCommand $args }
         "/help" { Invoke-HelpCommand $args }
         "history" { Invoke-HistoryCommand $args }
@@ -2866,6 +3553,12 @@ function Invoke-SpotifyCommand {
         "/notifications" { Invoke-NotificationsCommand $args }
         "auto-refresh" { Invoke-AutoRefreshCommand $args }
         "/auto-refresh" { Invoke-AutoRefreshCommand $args }
+        "live" { Invoke-LiveDisplayCommand $args }
+        "/live" { Invoke-LiveDisplayCommand $args }
+        "sidecar" { Invoke-SidecarCommand $args }
+        "/sidecar" { Invoke-SidecarCommand $args }
+        "lyrics" { Invoke-LyricsCommand $args }
+        "/lyrics" { Invoke-LyricsCommand $args }
         "quit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
         "/quit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
         "exit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
@@ -2931,9 +3624,22 @@ if ($Sidecar -or $NewWindow) {
         
         if ($Sidecar -and -not $NewWindow) {
             Write-Host "🪟 Launching Spotify CLI in sidecar mode..." -ForegroundColor Cyan
-            $success = Start-SpotifyCliInSidecar -ScriptPath $PSCommandPath -SplitDirection $SplitDirection
+            
+            # Build command line arguments for sidecar
+            $sidecarArgs = @()
+            if ($Live) {
+                $sidecarArgs += "-Live"
+                if ($LiveMode -ne "detailed") {
+                    $sidecarArgs += "-LiveMode", $LiveMode
+                }
+            }
+            
+            $success = Start-SpotifyCliInSidecar -ScriptPath $PSCommandPath -SplitDirection $SplitDirection -AdditionalArgs $sidecarArgs
             if ($success) {
                 Write-Host "✅ Spotify CLI launched successfully in sidecar" -ForegroundColor Green
+                if ($Live) {
+                    Write-Host "🎵 Sidecar will start in live display mode ($LiveMode)" -ForegroundColor Cyan
+                }
                 exit 0
             } else {
                 Write-Host "⚠️ Sidecar launch failed, continuing in current terminal" -ForegroundColor Yellow
@@ -2955,9 +3661,22 @@ if ($Sidecar -or $NewWindow) {
 }
 #endregion
 
+# Handle live mode launch
+if ($Live) {
+    Write-Host "🎵 Starting Spotify CLI in live display mode..." -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Start live display immediately
+    Invoke-LiveDisplayCommand $LiveMode
+    
+    # Exit after live mode ends
+    exit 0
+}
+
 while ($true) {
     $cmd = Read-Host ">"
-    Write-Host "DEBUG: '$cmd'"
+
     Invoke-SpotifyCommand $cmd
 }
 #endregion CLI-loop
+

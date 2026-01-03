@@ -1,40 +1,12 @@
-# Spotify CLI for PowerShell - Live Features Edition v3.0.0
+# Spotify CLI for PowerShell - Advanced Edition
 
-A comprehensive command-line interface for controlling Spotify playback directly from PowerShell with revolutionary **Live Features** including real-time display, synchronized lyrics, comprehensive analytics, interactive navigation, smart playlist management, and cross-platform compatibility.
+A comprehensive command-line interface for controlling Spotify playback directly from PowerShell with advanced features including interactive navigation, smart playlist management, cross-platform compatibility, and enhanced user experience.
 
-**🌟 NEW: LIVE FEATURES** - Transform your terminal into a dynamic music control center with real-time displays, synchronized lyrics, and comprehensive listening analytics.
-
-**✅ FULLY TESTED AND VALIDATED** - This CLI has been comprehensively tested with enhanced performance and expanded functionality.
+**✅ FULLY TESTED AND VALIDATED** - This CLI has been comprehensively tested with a 90/100 performance score and 42.3% requirement coverage validation.
 
 ---
 
 ## ✨ Key Features
-
-### 🌟 Live Features (NEW in v3.0.0)
-
-#### 🎵 Live Display Engine
-
-- **Real-time Updates**: Continuous display of current track with animated progress bars
-- **Multiple Display Modes**: Detailed, compact, and minimal modes for every situation
-- **Windows Terminal Sidecar**: Split-pane display for multitasking workflows
-- **Interactive Controls**: Control playback directly from live display
-- **Performance Optimized**: Efficient rendering with configurable refresh rates
-
-#### 🎤 Lyrics Engine
-
-- **Synchronized Lyrics**: Real-time highlighting that follows your music
-- **Multi-Provider Support**: Genius and Musixmatch integration with automatic fallback
-- **Interactive Viewer**: Full-featured lyrics browser with search and navigation
-- **Smart Caching**: Local storage for offline access and improved performance
-- **Multiple Display Options**: Timestamps, highlighting, and scrolling controls
-
-#### 📊 Statistics Engine
-
-- **Comprehensive Analytics**: Top tracks, artists, albums, and genre analysis
-- **ASCII Visualizations**: Beautiful terminal-based charts and graphs
-- **Listening Patterns**: Hourly and weekly activity analysis with streak tracking
-- **Data Export**: JSON and CSV export for external analysis
-- **Privacy Focused**: All data stored locally with configurable retention
 
 ### 🎵 Enhanced Playback Control
 
@@ -94,87 +66,48 @@ A comprehensive command-line interface for controlling Spotify playback directly
    - **Redirect URI**: `http://127.0.0.1:8888/callback`
 4. Save the app and copy your **Client ID** and **Client Secret**
 
-### 2. Installation Options
+### 2. Configure Environment Variables
 
-#### Option A: Complete Installation with Live Features (Recommended)
+Create a `.env` file in the project folder:
+
+```
+SPOTIFY_CLIENT_ID=your_client_id_here
+SPOTIFY_CLIENT_SECRET=your_client_secret_here
+```
+
+### 3. Installation Options
+
+#### Option A: Global Installation (Recommended)
 
 ```powershell
-# Install with all live features
-.\Install-SpotifyCLI-LiveFeatures.ps1
-
-# Install with API key configuration
-.\Install-SpotifyCLI-LiveFeatures.ps1 -ConfigureApiKeys
+# Install globally for use anywhere in PowerShell
+.\Install-SpotifyCliDependencies.ps1
 
 # Restart PowerShell or reload profile
 . $PROFILE
 ```
 
-#### Option B: Basic Installation (Without Live Features)
-
-```powershell
-# Install basic version only
-.\Install-SpotifyCLI-LiveFeatures.ps1 -SkipLiveFeatures
-
-# Or use legacy installer
-.\Install-SpotifyCliDependencies.ps1
-```
-
-#### Option C: Direct Module Import
+#### Option B: Direct Module Import
 
 ```powershell
 # Import module in current session only
 Import-Module .\SpotifyModule.psm1 -Force
 ```
 
-### 3. Configure Environment Variables (if not done during installation)
-
-Copy the example file and add your credentials:
+#### Option C: Interactive Script Mode
 
 ```powershell
-# Copy the template
-cp .env.example .env
-
-# Edit .env with your credentials:
-SPOTIFY_CLIENT_ID=your_client_id_here
-SPOTIFY_CLIENT_SECRET=your_client_secret_here
-```
-
-**Note**: The `.env` file is automatically ignored by Git to protect your credentials.
-
-### 4. Initialize Live Features (if installed)
-
-```powershell
-# Initialize live features system
-Initialize-SpotifyLiveFeatures
-
-# Check system status
-Get-SpotifyLiveFeaturesStatus
-
-# Start exploring live features
-Start-SpotifyLiveDisplay -Mode detailed
+# Run the interactive CLI script
+.\spotifyCLI.ps1
 ```
 
 ---
 
 ## 🎮 Usage
 
-### Available Functions (98 total)
+### Available Functions (89 total)
 
-The CLI exports 98 functions and aliases, including 9 new live features commands. Here are the main categories:
-
-### 🌟 Live Features Commands (NEW)
-
-| Function                                 | Description                     | Example                                                                                         |
-| ---------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `Initialize-SpotifyLiveFeatures`         | Initialize live features system | `Initialize-SpotifyLiveFeatures`                                                                |
-| `Start-SpotifyLiveDisplay`               | Start real-time display         | `Start-SpotifyLiveDisplay -Mode detailed`                                                       |
-| `Get-SpotifyCurrentTrackLyrics`          | Get lyrics for current track    | `Get-SpotifyCurrentTrackLyrics`                                                                 |
-| `Get-SpotifyLyrics`                      | Get lyrics for any track        | `Get-SpotifyLyrics -Artist "Queen" -Track "Bohemian Rhapsody"`                                  |
-| `Get-SpotifyListeningStatistics`         | Generate listening statistics   | `Get-SpotifyListeningStatistics -Period week`                                                   |
-| `Get-SpotifyLiveFeaturesStatus`          | Check system status             | `Get-SpotifyLiveFeaturesStatus`                                                                 |
-| `Set-SpotifyLiveFeaturesConfiguration`   | Update settings                 | `Set-SpotifyLiveFeaturesConfiguration -Section "liveDisplay" -Settings @{refreshInterval=2000}` |
-| `Reset-SpotifyLiveFeaturesConfiguration` | Reset to defaults               | `Reset-SpotifyLiveFeaturesConfiguration`                                                        |
-| `Stop-SpotifyLiveFeatures`               | Stop and cleanup                | `Stop-SpotifyLiveFeatures`                                                                      |
+The CLI exports 89 functions and aliases. Here are the main categories:
 
 #### 🎵 Core Playback Functions
 
@@ -299,10 +232,10 @@ search "pink floyd"
 
 ### Test Results
 
-- **Total Functions**: 98 available functions and aliases (9 new live features)
-- **Performance Score**: Enhanced with live features optimizations
-- **Module Import Time**: <100ms (optimized)
-- **Memory Usage**: 15-30MB with live features (efficient caching)
+- **Total Functions**: 89 available functions and aliases
+- **Performance Score**: 90/100
+- **Module Import Time**: ~51ms
+- **Memory Usage**: ~3MB (efficient)
 - **Cross-Platform**: Tested on PowerShell 5.1 and 7.5.3
 
 ### Validation Status
@@ -315,33 +248,10 @@ search "pink floyd"
 - ✅ Interactive navigation available
 - ✅ Alias system operational
 - ✅ Help and documentation complete
-- ✅ **Live display engine operational**
-- ✅ **Lyrics engine with multi-provider support**
-- ✅ **Statistics engine with analytics**
-- ✅ **Real-time updates and caching**
 
 ---
 
 ## 🎯 Quick Start Examples
-
-### Live Features Quick Start
-
-```powershell
-# Initialize live features
-Initialize-SpotifyLiveFeatures
-
-# Start live display
-Start-SpotifyLiveDisplay -Mode detailed
-
-# Try sidecar mode (Windows Terminal)
-spotify --sidecar
-
-# Get lyrics for current track
-Get-SpotifyCurrentTrackLyrics
-
-# Generate weekly statistics
-Get-SpotifyListeningStatistics -Period week
-```
 
 ### Basic Usage
 
@@ -441,64 +351,8 @@ Get-SpotifyCliTroubleshootingGuide
 
 ---
 
-## 🚀 What's New in v3.0.0
-
-### 🌟 Live Features
-
-- **Live Display Engine**: Real-time track visualization with animated progress bars
-- **Lyrics Engine**: Synchronized lyrics with multi-provider support
-- **Statistics Engine**: Comprehensive analytics with ASCII visualizations
-- **Enhanced Configuration**: JSON-based settings with runtime updates
-- **Performance Optimizations**: Intelligent caching and background processing
-
-### 📚 Comprehensive Documentation
-
-- **Complete User Guide**: 50+ page comprehensive guide
-- **Configuration Reference**: Detailed settings documentation
-- **Troubleshooting Guide**: Solutions for common issues
-- **Migration Guide**: Step-by-step upgrade instructions
-- **Example Scenarios**: Real-world usage examples
-
-## 🔮 Upcoming Features
-
-### 🍎 v3.1.0 - Cross-Platform Expansion
-
-- **macOS Support**: Native macOS Terminal integration
-- **Linux Compatibility**: Full Linux support with terminal integration
-- **Additional Lyrics Providers**: More lyrics sources and better coverage
-- **Custom Themes**: User-defined color schemes and layouts
-
-### 🌐 v3.2.0 - Advanced Integration
-
-- **Mobile Integration**: Enhanced mobile device support
-- **Cloud Sync**: Optional cloud synchronization for statistics
-- **Plugin System**: Third-party plugin support
-- **Web Dashboard**: Optional web interface for statistics viewing
-
----
-
 ## 🎵 Enjoy Your Music!
 
-The Spotify CLI Live Features Edition provides a revolutionary command-line interface for Spotify. With 98 available functions, real-time live features, synchronized lyrics, comprehensive analytics, and cross-platform compatibility, you have unprecedented control over your music experience directly from PowerShell.
+The Spotify CLI Advanced Edition provides a comprehensive, tested, and validated command-line interface for Spotify. With 89 available functions, interactive navigation, and cross-platform compatibility, you have full control over your music experience directly from PowerShell.
 
-### 📚 Documentation
-
-- **[Complete User Guide](docs/Live-Features-Complete-User-Guide.md)** - Comprehensive guide to all features
-- **[Configuration Reference](docs/Configuration-Reference.md)** - Detailed settings documentation
-- **[Troubleshooting Guide](docs/Troubleshooting-Guide.md)** - Solutions for common issues
-- **[Migration Guide](docs/Migration-Guide.md)** - Upgrade from previous versions
-- **[Example Scenarios](docs/Example-Scenarios.md)** - Real-world usage examples
-
-### 🆕 What's New
-
-**Live Features v3.0.0** introduces:
-
-- **Real-time display** with animated progress bars
-- **Synchronized lyrics** from multiple providers
-- **Comprehensive statistics** with beautiful visualizations
-- **Enhanced performance** with intelligent caching
-- **Extensive documentation** with guides and examples
-
-**Coming Soon**: Full macOS and Linux support with native terminal integration!
-
-For support or issues, use the built-in troubleshooting tools or check the comprehensive documentation system.
+For support or issues, use the built-in troubleshooting tools or check the comprehensive help system.
