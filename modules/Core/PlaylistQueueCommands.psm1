@@ -1,3 +1,278 @@
+# Playlist and Queue Commands Module
+
+function queue {
+    <#
+    .SYNOPSIS
+    Manage playback queue - display, add, clear, or remove tracks
+    .DESCRIPTION
+    Advanced queue management with multiple operations:
+    - Display current queue (no parameters)
+    - Add track by number or URI
+    - Clear entire queue
+    - Remove specific tracks from queue
+    .PARAMETER Operation
+    The first operation parameter (optional)
+    .PARAMETER SecondArg
+    The second argument for operations like 'remove <number>' (optional)
+    .EXAMPLE
+    queue
+    Display current queue with track numbers
+    .EXAMPLE
+    queue 1
+    Add track #1 from search results to queue
+    .EXAMPLE
+    queue clear
+    Clear the entire queue
+    .EXAMPLE
+    queue remove 3
+    Remove track #3 from the queue
+    .EXAMPLE
+    queue spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+    Add track to queue by URI
+    #>
+    param(
+        [string]$Operation,
+        [string]$SecondArg
+    )
+    # If no operation specified, display current queue
+    if ([string]::IsNullOrWhiteSpace($Operation)) {
+        Show-SpotifyQueue
+        return
+    }
+    $operation = $Operation.ToLower()
+    # Handle different operations
+    switch ($operation) {
+        "clear" {
+            Clear-SpotifyQueue
+            return
+        }
+        "remove" {
+            if ([string]::IsNullOrWhiteSpace($SecondArg)) {
+                Write-Host "❌ Usage: queue remove <track_number>" -ForegroundColor Red
+                Write-Host "💡 Use 'queue' to see track numbers" -ForegroundColor Yellow
+                return
+            }
+            Remove-SpotifyQueueTrack -TrackNumber $SecondArg
+            return
+        }
+        default {
+            # Add track to queue (existing functionality)
+            Add-SpotifyQueueTrack -TrackReference $operation
+        }
+    }
+}
+function Show-SpotifyQueue {
+    <#
+    .SYNOPSIS
+    Display the current Spotify queue with track numbers
+    #>
+    try {
+        # Get current queue from Spotify API
+        $queueResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/queue"
+        if (-not $queueResponse) {
+            Write-Host "📭 Queue is empty" -ForegroundColor Yellow # This means API call succeeded but no queue
+            return
+        }
+        Write-Host "🎵 Current Queue:" -ForegroundColor Cyan
+        Write-Host ""
+        # Show currently playing track
+        if ($queueResponse.currently_playing) {
+            $current = $queueResponse.currently_playing
+            $isPodcast = $current.type -eq "episode"
+            if ($isPodcast) {
+                Write-Host "▶️ Now Playing: 🎙️ $($current.name)" -ForegroundColor Green
+                Write-Host "   from $($current.show.name)" -ForegroundColor Gray
+            } else {
+                $artists = ($current.artists | ForEach-Object { $_.name }) -join ", "
+                Write-Host "▶️ Now Playing: $($current.name)" -ForegroundColor Green
+                Write-Host "   by $artists • $($current.album.name)" -ForegroundColor Gray
+            }
+            Write-Host ""
+        }
+        # Show queued tracks
+        if ($queueResponse.queue -and $queueResponse.queue.Count -gt 0) {
+            Write-Host "📋 Up Next:" -ForegroundColor Yellow
+            Write-Host ""
+            $i = 1
+            foreach ($track in $queueResponse.queue) {
+                $isPodcast = $track.type -eq "episode"
+                if ($isPodcast) {
+                    Write-Host "$i. 🎙️ $($track.name)" -ForegroundColor Magenta
+                    Write-Host "   from $($track.show.name)" -ForegroundColor Gray
+                } else {
+                    $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+                    Write-Host "$i. $($track.name)" -ForegroundColor White
+                    Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
+                }
+                # Show duration
+                if ($track.duration_ms) {
+                    $duration = Format-Time $track.duration_ms
+                    Write-Host "   ⏱ $duration" -ForegroundColor Gray
+                }
+                Write-Host ""
+                $i++
+                # Limit display to first 20 tracks to avoid overwhelming output
+                if ($i -gt 20) {
+                    $remaining = $queueResponse.queue.Count - 20
+                    Write-Host "   ... and $remaining more tracks" -ForegroundColor Gray
+                    break
+                }
+            }
+            Write-Host "💡 Use 'queue remove <number>' to remove specific tracks" -ForegroundColor Cyan
+            Write-Host "💡 Use 'queue clear' to clear entire queue" -ForegroundColor Cyan
+        } else {
+            Write-Host "📭 Queue is empty" -ForegroundColor Yellow
+            Write-Host "💡 Use 'search' then 'queue <number>' to add tracks" -ForegroundColor Cyan
+        }
+    }
+    catch [AuthenticationException] {
+        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+    }
+    catch [ApiClientException] {
+        Write-Host "❌ Could not retrieve queue information." -ForegroundColor Red
+        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "❌ An unexpected error occurred while retrieving the queue: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+function Clear-SpotifyQueue {
+    <#
+    .SYNOPSIS
+    Clear the entire Spotify queue
+    #>
+    try {
+        # Note: Spotify Web API doesn't have a direct "clear queue" endpoint
+        # We need to get the queue and remove tracks individually
+        Write-Host "🧹 Clearing Spotify queue..." -ForegroundColor Yellow
+        $queueResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/queue"
+        if (-not $queueResponse -or -not $queueResponse.queue -or $queueResponse.queue.Count -eq 0) {
+            Write-Host "📭 Queue is already empty" -ForegroundColor Green
+            return
+        }
+        # Unfortunately, Spotify Web API doesn't have a direct "clear queue" endpoint.
+        # This is a limitation of the Spotify Web API itself.
+        Write-Host "⚠️ Spotify Web API doesn't support clearing the queue directly" -ForegroundColor Yellow
+        Write-Host "💡 Alternative solutions:" -ForegroundColor Cyan
+        Write-Host "   • Skip to end of queue using next/previous controls" -ForegroundColor White
+        Write-Host "   • Start playing a different playlist/album to replace queue" -ForegroundColor White
+        Write-Host "   • Use Spotify app directly to clear queue" -ForegroundColor White
+        # Show current queue size
+        Write-Host "📊 Current queue has $($queueResponse.queue.Count) tracks" -ForegroundColor Gray
+    }
+    catch [AuthenticationException] {
+        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+    }
+    catch [ApiClientException] {
+        Write-Host "❌ Could not retrieve queue to clear." -ForegroundColor Red
+        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "❌ An unexpected error occurred while trying to clear the queue: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+function Remove-SpotifyQueueTrack {
+    <#
+    .SYNOPSIS
+    Remove a specific track from the Spotify queue by number
+    #>
+    param([string]$TrackNumber)
+    if (-not ($TrackNumber -match '^\d+$')) {
+        Write-Host "❌ Invalid track number. Must be a number." -ForegroundColor Red
+        return
+    }
+    try {
+        Write-Host "🗑️ Attempting to remove track #$TrackNumber from queue..." -ForegroundColor Yellow
+        # Unfortunately, Spotify Web API doesn't provide a way to remove specific tracks from queue
+        # This is a limitation of the Spotify Web API itself
+        Write-Host "⚠️ Spotify Web API doesn't support removing specific tracks from queue" -ForegroundColor Yellow
+        Write-Host "💡 Alternative solutions:" -ForegroundColor Cyan
+        Write-Host "   • Use 'queue' to see current queue" -ForegroundColor White
+        Write-Host "   • Skip tracks using 'next' command" -ForegroundColor White
+        Write-Host "   • Use Spotify app directly to manage queue" -ForegroundColor White
+    }
+    catch [AuthenticationException] {
+        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+    }
+    catch [ApiClientException] {
+        Write-Host "❌ Could not remove track from queue due to API issues." -ForegroundColor Red
+        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "❌ An unexpected error occurred while trying to remove the track: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+function Add-SpotifyQueueTrack {
+    <#
+    .SYNOPSIS
+    Add a track to the Spotify queue by number or URI
+    #>
+    param([string]$TrackReference)
+    if ([string]::IsNullOrWhiteSpace($TrackReference)) {
+        Write-Host "❌ Usage: queue <track_number_or_uri>" -ForegroundColor Red
+        Write-Host "💡 Use 'search' command to find tracks first" -ForegroundColor Yellow
+        return
+    }
+    $trackUri = $TrackReference
+    $trackName = ""
+    $artistInfo = ""
+    # Check if it's a number (track index from search)
+    if ($TrackReference -match '^\d+$') {
+        $trackIndex = [int]$TrackReference - 1
+        $sessionTracks = Get-SessionTracks
+        if ($sessionTracks -and $trackIndex -ge 0 -and $trackIndex -lt $sessionTracks.Count) {
+            $item = $sessionTracks[$trackIndex]
+            $trackUri = $item.uri
+            $trackName = $item.name
+            # Handle both tracks and episodes
+            if ($item.search_type -eq "episode" -or $item.type -eq "episode") {
+                $artistInfo = "from $($item.show.name)"
+                Write-Host "🎯 Adding podcast episode #$TrackReference ($trackName $artistInfo) to queue..." -ForegroundColor Magenta
+            } else {
+                $artistInfo = "by " + (($item.artists | ForEach-Object { $_.name }) -join ", ")
+                Write-Host "🎯 Adding track #$TrackReference ($trackName $artistInfo) to queue..." -ForegroundColor Cyan
+            }
+        } else {
+            Write-Host "❌ Invalid track number. Use 'search' to find tracks first." -ForegroundColor Red
+            return
+        }
+    }
+    # Ensure it's a valid Spotify URI (track or episode)
+    if (-not ($trackUri.StartsWith("spotify:track:") -or $trackUri.StartsWith("spotify:episode:"))) {
+        Write-Host "❌ Invalid URI. Must be a Spotify track or episode URI" -ForegroundColor Red
+        return
+    }
+    try {
+        $query = @{ uri = $trackUri }
+        Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query $query
+        if ($trackUri.StartsWith("spotify:episode:")) {
+            Write-Host "➕ Podcast episode added to queue" -ForegroundColor Magenta
+        } else {
+            Write-Host "➕ Track added to queue" -ForegroundColor Green
+        }
+        # Show helpful tip
+        Write-Host "💡 Use 'queue' to see current queue" -ForegroundColor Gray
+    }
+    catch [AuthenticationException] {
+        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+    }
+    catch [ApiClientException] {
+        Write-Host "❌ Could not add to queue." -ForegroundColor Red
+        if ($_.Exception.StatusCode -eq 403) {
+            Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
+        } elseif ($_.Exception.StatusCode -eq 404) {
+            Write-Host "💡 Make sure Spotify is running on an active device." -ForegroundColor Yellow
+        }
+        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "❌ An unexpected error occurred while adding to queue: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
 function playlists {
     <#
     .SYNOPSIS
@@ -77,7 +352,7 @@ function playlists {
     }
     catch [AuthenticationException] {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
         Set-SessionPlaylists -Playlists @()
     }
     catch [ApiClientException] {
@@ -164,7 +439,7 @@ function play-playlist {
     }
     catch [AuthenticationException] {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
     catch [ApiClientException] {
         Write-Host "❌ Could not play playlist." -ForegroundColor Red
@@ -227,7 +502,7 @@ function queue-playlist {
                 }
                 catch [AuthenticationException] {
                     Write-Host "🔐 Authentication Error during track queueing (track: $($track.name)): Your Spotify session has expired." -ForegroundColor Red
-                    Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+                    Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
                     $skippedCount++
                     break # Stop adding tracks if auth fails
                 }
@@ -253,7 +528,7 @@ function queue-playlist {
     }
     catch [AuthenticationException] {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
     catch [ApiClientException] {
         Write-Host "❌ Could not queue playlist." -ForegroundColor Red
@@ -296,7 +571,7 @@ function liked {
     }
     catch [AuthenticationException] {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
     catch [ApiClientException] {
         Write-Host "❌ Could not get liked songs." -ForegroundColor Red
@@ -324,19 +599,36 @@ function recent {
         Write-Host ""
         $i = 1
         foreach ($item in $recentResponse.items) {
-            $track = $item.track
-            $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
-            $playedAt = [DateTime]::Parse($item.played_at).ToString("yyyy-MM-dd HH:mm")
-            Write-Host "$i. $($track.name)" -ForegroundColor White
-            Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
-            Write-Host "   Played: $playedAt • URI: $($track.uri)" -ForegroundColor Gray
+            $playedDate = [DateTime]::Parse($item.played_at).ToString("yyyy-MM-dd HH:mm")
+            if ($item.track) {
+                # Music track
+                $track = $item.track
+                $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+                Write-Host "$i. $($track.name)" -ForegroundColor White
+                Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
+                Write-Host "   Played: $playedDate • URI: $($track.uri)" -ForegroundColor Gray
+            } elseif ($item.episode) {
+                # Podcast episode
+                $episode = $item.episode
+                Write-Host "$i. 🎙️ $($episode.name)" -ForegroundColor Magenta
+                Write-Host "   from $($episode.show.name)" -ForegroundColor Gray
+                if ($episode.description) {
+                    $description = if ($episode.description.Length -gt 60) {
+                        $episode.description.Substring(0, 57) + "..."
+                    } else {
+                        $episode.description
+                    }
+                    Write-Host "   📝 $description" -ForegroundColor Gray
+                }
+                Write-Host "   Played: $playedDate • URI: $($episode.uri)" -ForegroundColor Gray
+            }
             Write-Host ""
             $i++
         }
     }
     catch [AuthenticationException] {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
     catch [ApiClientException] {
         Write-Host "❌ Could not get recently played songs." -ForegroundColor Red
@@ -404,7 +696,7 @@ function save-track {
     }
     catch [AuthenticationException] {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
     catch [ApiClientException] {
         Write-Host "❌ Could not save item." -ForegroundColor Red
@@ -473,7 +765,7 @@ function unsave-track {
     }
     catch [AuthenticationException] {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
     catch [ApiClientException] {
         Write-Host "❌ Could not remove item from library." -ForegroundColor Red
@@ -484,13 +776,3 @@ function unsave-track {
         Write-Host "❌ An unexpected error occurred while removing the item: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
-
-Export-ModuleMember -Function @(
-    'playlists',
-    'play-playlist',
-    'queue-playlist',
-    'liked',
-    'recent',
-    'save-track',
-    'unsave-track'
-)

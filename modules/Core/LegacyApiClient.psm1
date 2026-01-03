@@ -6,7 +6,8 @@ $script:AppDataDir = Join-Path $env:APPDATA "SpotifyCLI" # Duplicated from Legac
 $script:TokenFile = Join-Path $script:AppDataDir "tokens.json"
 $script:TokenEndpoint = "https://accounts.spotify.com/api/token"
 $script:ApiBase = "https://api.spotify.com/v1"
-
+$script:RedirectUri = "http://127.0.0.1:8888/callback"
+$script:Scopes = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-private playlist-read-private user-library-read user-library-modify user-read-recently-played user-top-read"
 
 # --- Public Functions ---
 
@@ -126,7 +127,7 @@ function Get-SpotifyAccessToken {
                 client_id = $env:SPOTIFY_CLIENT_ID
                 client_secret = $env:SPOTIFY_CLIENT_SECRET
             }
-            $tokenResp = Invoke-RestMethod -Method Post -Uri "https://accounts.spotify.com/api/token" -Body $body
+            $tokenResp = Invoke-RestMethod -Method Post -Uri $script:TokenEndpoint -Body $body
             $tokens.access_token = $tokenResp.access_token
             if ($tokenResp.refresh_token) { $tokens.refresh_token = $tokenResp.refresh_token }
             $tokens.expires_in = $tokenResp.expires_in
@@ -153,7 +154,7 @@ function Test-TokenScopes {
         return $false
     }
     # Check if all required scopes are present
-    $requiredScopes = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-private playlist-read-private user-library-read user-library-modify user-read-recently-played user-top-read" -split ' '
+    $requiredScopes = $script:Scopes -split ' '
     $tokenScopes = $Tokens.scopes -split ' '
     foreach ($scope in $requiredScopes) {
         if ($scope -notin $tokenScopes) {
