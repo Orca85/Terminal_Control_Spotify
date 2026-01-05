@@ -35,6 +35,7 @@ function play {
         }
 
         try {
+            # Try to play on active device first
             $body = @{ uris = @($trackUri) }
             Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
             if ($trackUri.StartsWith("spotify:episode:")) {
@@ -43,16 +44,34 @@ function play {
                 Write-Host "▶️ Playing track" -ForegroundColor Green
             }
         }
-        catch [AuthenticationException] {
-            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-            Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
-        }
-        catch [ApiClientException] {
-            Write-Host "❌ Could not play track. Make sure a device is active." -ForegroundColor Red
-            Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-        }
         catch {
-            Write-Host "❌ An unexpected error occurred while trying to play the track: $($_.Exception.Message)" -ForegroundColor Red
+            # If no active device, try to activate one
+            Write-Host "🎵 No active device. Looking for available devices..." -ForegroundColor Yellow
+            try {
+                $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
+                if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
+                    Write-Host "❌ No available devices found. Please start Spotify on a device." -ForegroundColor Red
+                    return
+                }
+
+                $firstDevice = $devicesResponse.devices[0]
+                Write-Host "🔄 Activating device: $($firstDevice.name)..." -ForegroundColor Cyan
+                $transferBody = @{ device_ids = @($firstDevice.id); play = $false }
+                Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody
+                Start-Sleep -Milliseconds 500
+
+                # Try again to play
+                $body = @{ uris = @($trackUri) }
+                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+                if ($trackUri.StartsWith("spotify:episode:")) {
+                    Write-Host "▶️ Playing podcast episode" -ForegroundColor Magenta
+                } else {
+                    Write-Host "▶️ Playing track" -ForegroundColor Green
+                }
+            }
+            catch {
+                Write-Host "❌ Could not play track: $($_.Exception.Message)" -ForegroundColor Red
+            }
         }
         return
     }
@@ -62,7 +81,7 @@ function play {
         Invoke-SpotifyApi -Method PUT -Path "/me/player/play"
         Write-Host "▶️ Resumed playback" -ForegroundColor Green
     }
-    catch [ApiClientException] {
+    catch {
         # This is the expected error when nothing is active.
         # Now we try to be smart and play a recent track.
         Write-Host "🎵 No active playback found. Trying to start from your recent tracks..." -ForegroundColor Yellow
@@ -93,16 +112,8 @@ function play {
             }
         }
         catch {
-            Write-Host "❌ Could not start playback automatically." -ForegroundColor Red
-            Write-Host "💡 Error: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "❌ Could not start playback: $($_.Exception.Message)" -ForegroundColor Red
         }
-    }
-    catch [AuthenticationException] {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while trying to resume playback: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
@@ -111,11 +122,11 @@ function pause {
         Invoke-SpotifyApi -Method PUT -Path "/me/player/pause"
         Write-Host "⏸️ Paused playback" -ForegroundColor Yellow
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not pause playback. Make sure Spotify is open and playing." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -142,11 +153,11 @@ function next {
             Show-TrackNotification -Title "Spotify" -Message "Skipped to next track"
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not skip to next track. Make sure Spotify is playing music." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -173,11 +184,11 @@ function previous {
             Show-TrackNotification -Title "Spotify" -Message "Skipped to previous track"
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not skip to previous track. Make sure Spotify is playing music." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -207,11 +218,11 @@ function volume {
         Invoke-SpotifyApi -Method PUT -Path "/me/player/volume" -Query $query
         Write-Host "🔊 Volume set to $Level%" -ForegroundColor Green
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not set volume. Make sure a device is active and supports volume control." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -269,11 +280,11 @@ function seek {
             Write-Host "⏩ Seeked $direction $absSeconds seconds" -ForegroundColor Green
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not seek. Make sure a track is playing on an active device." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -344,11 +355,11 @@ function shuffle {
         $icon = if ($newState) { "🔀" } else { "➡️" }
         Write-Host "$icon Shuffle $stateText" -ForegroundColor Green
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not change shuffle state. Make sure a track is playing on an active device." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -386,11 +397,11 @@ function repeat {
         }
         Write-Host "$icon Repeat $modeText" -ForegroundColor Green
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not change repeat state. Make sure a track is playing on an active device." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -451,11 +462,11 @@ function transfer {
 
         Write-Host "📱 Playback successfully transferred to '$($deviceName)'" -ForegroundColor Green
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not transfer playback." -ForegroundColor Red
         Write-Host "💡 Make sure the device ID is correct and the device is online." -ForegroundColor Yellow
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -465,12 +476,235 @@ function transfer {
     }
 }
 
+function export-now-playing {
+    <#
+    .SYNOPSIS
+    Export currently playing track info to files for OBS/streaming
+    .PARAMETER OutputPath
+    Directory to save files (default: current directory)
+    .PARAMETER Watch
+    Continuously update files (useful for OBS)
+    .EXAMPLE
+    export-now-playing
+    Export current track to files in current directory
+    .EXAMPLE
+    export-now-playing -OutputPath "C:\OBS\nowplaying"
+    Export to specific directory
+    .EXAMPLE
+    export-now-playing -Watch
+    Continuously update files every 2 seconds
+    #>
+    param(
+        [string]$OutputPath = ".",
+        [switch]$Watch
+    )
+
+    # Ensure directory exists
+    if (-not (Test-Path $OutputPath)) {
+        New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+    }
+
+    $trackFile = Join-Path $OutputPath "track.txt"
+    $artistFile = Join-Path $OutputPath "artist.txt"
+    $albumFile = Join-Path $OutputPath "album.txt"
+    $nowPlayingFile = Join-Path $OutputPath "nowplaying.txt"
+
+    if ($Watch) {
+        Write-Host "📝 Starting continuous export to $OutputPath" -ForegroundColor Cyan
+        Write-Host "💡 Files will update every 2 seconds" -ForegroundColor Yellow
+        Write-Host "💡 Press Ctrl+C to stop" -ForegroundColor Yellow
+        Write-Host ""
+
+        try {
+            while ($true) {
+                try {
+                    $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+                    if ($currentTrack -and $currentTrack.item) {
+                        $item = $currentTrack.item
+
+                        if ($currentTrack.currently_playing_type -eq "episode" -or $item.type -eq "episode") {
+                            # Podcast episode
+                            Set-Content -Path $trackFile -Value $item.name -Encoding UTF8
+                            Set-Content -Path $artistFile -Value $item.show.name -Encoding UTF8
+                            Set-Content -Path $albumFile -Value "Podcast" -Encoding UTF8
+                            Set-Content -Path $nowPlayingFile -Value "🎙️ $($item.name) - $($item.show.name)" -Encoding UTF8
+                        } else {
+                            # Music track
+                            $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+                            Set-Content -Path $trackFile -Value $item.name -Encoding UTF8
+                            Set-Content -Path $artistFile -Value $artists -Encoding UTF8
+                            Set-Content -Path $albumFile -Value $item.album.name -Encoding UTF8
+                            Set-Content -Path $nowPlayingFile -Value "🎵 $($item.name) - $artists" -Encoding UTF8
+                        }
+
+                        Write-Host "✅ Updated at $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Green
+                    } else {
+                        # Clear files if nothing is playing
+                        "" | Set-Content -Path $trackFile -Encoding UTF8
+                        "" | Set-Content -Path $artistFile -Encoding UTF8
+                        "" | Set-Content -Path $albumFile -Encoding UTF8
+                        "Not playing" | Set-Content -Path $nowPlayingFile -Encoding UTF8
+                    }
+                } catch {
+                    Write-Warning "Failed to update: $($_.Exception.Message)"
+                }
+
+                Start-Sleep -Seconds 2
+            }
+        } catch {
+            Write-Host ""
+            Write-Host "📝 Export stopped." -ForegroundColor Yellow
+        }
+    } else {
+        try {
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if (-not $currentTrack -or -not $currentTrack.item) {
+                Write-Host "❌ No track or episode currently playing." -ForegroundColor Red
+                return
+            }
+
+            $item = $currentTrack.item
+
+            if ($currentTrack.currently_playing_type -eq "episode" -or $item.type -eq "episode") {
+                # Podcast episode
+                Set-Content -Path $trackFile -Value $item.name -Encoding UTF8
+                Set-Content -Path $artistFile -Value $item.show.name -Encoding UTF8
+                Set-Content -Path $albumFile -Value "Podcast" -Encoding UTF8
+                Set-Content -Path $nowPlayingFile -Value "🎙️ $($item.name) - $($item.show.name)" -Encoding UTF8
+
+                Write-Host "📝 Exported podcast episode:" -ForegroundColor Magenta
+                Write-Host "   $($item.name)" -ForegroundColor White
+                Write-Host "   from $($item.show.name)" -ForegroundColor Gray
+            } else {
+                # Music track
+                $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+                Set-Content -Path $trackFile -Value $item.name -Encoding UTF8
+                Set-Content -Path $artistFile -Value $artists -Encoding UTF8
+                Set-Content -Path $albumFile -Value $item.album.name -Encoding UTF8
+                Set-Content -Path $nowPlayingFile -Value "🎵 $($item.name) - $artists" -Encoding UTF8
+
+                Write-Host "📝 Exported track:" -ForegroundColor Green
+                Write-Host "   $($item.name)" -ForegroundColor White
+                Write-Host "   by $artists" -ForegroundColor Gray
+                Write-Host "   from $($item.album.name)" -ForegroundColor Gray
+            }
+
+            Write-Host ""
+            Write-Host "Files saved to:" -ForegroundColor Cyan
+            Write-Host "   $trackFile" -ForegroundColor Gray
+            Write-Host "   $artistFile" -ForegroundColor Gray
+            Write-Host "   $albumFile" -ForegroundColor Gray
+            Write-Host "   $nowPlayingFile" -ForegroundColor Gray
+        }
+        catch {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        }
+        catch {
+            Write-Host "❌ Could not get current track." -ForegroundColor Red
+            Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+        catch {
+            Write-Host "❌ An unexpected error occurred: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+}
+
+function copy-track-link {
+    <#
+    .SYNOPSIS
+    Copy current track or episode Spotify link to clipboard
+    .EXAMPLE
+    copy-track-link
+    Copy Spotify link for currently playing track to clipboard
+    #>
+    try {
+        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+        if (-not $currentTrack -or -not $currentTrack.item) {
+            Write-Host "❌ No track or episode currently playing." -ForegroundColor Red
+            return
+        }
+
+        $item = $currentTrack.item
+        $link = ""
+        $name = ""
+
+        if ($currentTrack.currently_playing_type -eq "episode" -or $item.type -eq "episode") {
+            # Podcast episode
+            $episodeId = $item.id
+            $link = "https://open.spotify.com/episode/$episodeId"
+            $name = $item.name
+            Write-Host "🎙️ $name" -ForegroundColor Magenta
+        } else {
+            # Music track
+            $trackId = $item.id
+            $link = "https://open.spotify.com/track/$trackId"
+            $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+            $name = "$($item.name) by $artists"
+            Write-Host "🎵 $name" -ForegroundColor Green
+        }
+
+        # Copy to clipboard
+        Set-Clipboard -Value $link
+        Write-Host "📋 Link copied to clipboard: $link" -ForegroundColor Cyan
+    }
+    catch {
+        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "❌ Could not get current track." -ForegroundColor Red
+        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    catch {
+        Write-Host "❌ An unexpected error occurred: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function volume-low {
+    <#
+    .SYNOPSIS
+    Set volume to 25% (low preset)
+    .EXAMPLE
+    volume-low
+    Set volume to 25%
+    #>
+    volume 25
+}
+
+function volume-medium {
+    <#
+    .SYNOPSIS
+    Set volume to 50% (medium preset)
+    .EXAMPLE
+    volume-medium
+    Set volume to 50%
+    #>
+    volume 50
+}
+
+function volume-high {
+    <#
+    .SYNOPSIS
+    Set volume to 75% (high preset)
+    .EXAMPLE
+    volume-high
+    Set volume to 75%
+    #>
+    volume 75
+}
+
 Export-ModuleMember -Function @(
     'play',
     'pause',
     'next',
     'previous',
     'volume',
+    'volume-low',
+    'volume-medium',
+    'volume-high',
+    'copy-track-link',
+    'export-now-playing',
     'seek',
     'skip-forward',
     'skip-back',

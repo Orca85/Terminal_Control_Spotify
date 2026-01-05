@@ -1,7 +1,7 @@
 # Spotify PowerShell Module - Main Orchestrator
 
 # --- Import Live Features ---
-$script:LiveFeaturesModulePath = Join-Path $PSScriptRoot "LiveFeatures\SpotifyLiveFeatures.psm1"
+$script:LiveFeaturesModulePath = Join-Path $PSScriptRoot "modules\SpotifyLiveFeatures.psm1"
 if (Test-Path $script:LiveFeaturesModulePath) {
     try {
         Import-Module $script:LiveFeaturesModulePath -Force -Global
@@ -18,18 +18,23 @@ if (Test-Path $script:LiveFeaturesModulePath) {
 
 # --- Import Core Logic Modules ---
 try {
-    # Foundational Modules
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\ErrorHandling.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\StateManager.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\LegacyConfigManager.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\LegacyApiClient.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\UIHelpers.psm1") -Force
+    # Foundational Modules (ErrorHandling first since ApiClientManager uses AuthenticationException)
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\ErrorHandling.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\ApiClientManager.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyApiClient.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\StateManager.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyConfigManager.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\UIHelpers.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\InteractiveMode.psm1") -Force -Global
+
+    # UI Modules
+    Import-Module (Join-Path $PSScriptRoot "modules\UI\SpotifyFormDisplay.psm1") -Force -Global
 
     # Command Modules
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\AppCommands.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\PlaybackCommands.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\SearchCommands.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\PlaylistQueueCommands.psm1") -Force
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\AppCommands.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\PlaybackCommands.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\SearchCommands.psm1") -Force -Global
+    Import-Module (Join-Path $PSScriptRoot "modules\Core\PlaylistQueueCommands.psm1") -Force -Global
 }
 catch {
     Write-Warning "Failed to load Core modules: $($_.Exception.Message)"
@@ -104,6 +109,93 @@ function Start-SpotifyLive {
     }
 }
 
+function Get-WindowsTerminalPath {
+    # Check if Windows Terminal is installed
+    $wtPath = Get-Command wt.exe -ErrorAction SilentlyContinue
+    if ($wtPath) {
+        return $wtPath.Source
+    }
+
+    # Check common install locations
+    $possiblePaths = @(
+        "$env:LOCALAPPDATA\Microsoft\WindowsApps\wt.exe",
+        "$env:ProgramFiles\WindowsApps\Microsoft.WindowsTerminal*\wt.exe"
+    )
+
+    foreach ($path in $possiblePaths) {
+        if (Test-Path $path) {
+            return $path
+        }
+    }
+
+    return $null
+}
+
+function Start-SpotifyCliInNewWindow {
+    param(
+        [switch]$Live,
+        [string]$ScriptPath = $PSCommandPath
+    )
+
+    try {
+        $arguments = if ($Live) { "-NoExit -Command `"Import-Module '$PSScriptRoot\SpotifyModule.psm1' -Force; Start-SpotifyLive`"" } else { "-NoExit -File `"$ScriptPath`"" }
+        Start-Process pwsh -ArgumentList $arguments
+        return $true
+    } catch {
+        Write-Warning "Failed to start new window: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Start-SpotifyCliInWindowsTerminalSplit {
+    param(
+        [ValidateSet("right", "down", "left", "up")]
+        [string]$SplitDirection = "right",
+        [int]$Width = 40,
+        [switch]$Live
+    )
+
+    $wtPath = Get-WindowsTerminalPath
+    if (-not $wtPath) {
+        throw "Windows Terminal not found"
+    }
+
+    # Map direction to wt.exe split parameter
+    $splitParam = switch ($SplitDirection) {
+        "right" { "--horizontal" }
+        "left" { "--horizontal" }
+        "down" { "--vertical" }
+        "up" { "--vertical" }
+    }
+
+    # Convert percentage to decimal (40 -> 0.4)
+    $sizeDecimal = [Math]::Max(0.01, [Math]::Min(0.99, $Width / 100.0))
+
+    # Get absolute path to module
+    $modulePath = Join-Path $PSScriptRoot "SpotifyModule.psm1"
+
+    # Build command with properly escaped paths
+    if ($Live) {
+        $cmd = "Import-Module -Force '$modulePath'; Start-SpotifyLive"
+    } else {
+        $cmd = "Import-Module -Force '$modulePath'"
+    }
+
+    # Use wt.exe with proper argument structure
+    $wtArgs = @(
+        'split-pane'
+        $splitParam
+        '--size'
+        $sizeDecimal.ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture)
+        'pwsh.exe'
+        '-NoExit'
+        '-Command'
+        $cmd
+    )
+
+    & $wtPath @wtArgs
+}
+
 function Start-SpotifySidecar {
     <#
     .SYNOPSIS
@@ -163,148 +255,282 @@ function Get-SpotifyLyrics {
     <#
     .SYNOPSIS
     Get and display lyrics for current or specified track
-    
+
     .DESCRIPTION
-    Fetches lyrics from external providers (Genius, Musixmatch) and displays them
-    with optional scrolling and synchronized highlighting.
-    
+    Fetches lyrics from external providers (LRCLIB, Genius, Musixmatch) and displays them
+    with optional scrolling, synchronized highlighting, and karaoke mode.
+
     .PARAMETER Artist
     Artist name (optional - uses current track if not specified)
-    
+
     .PARAMETER Track
     Track name (optional - uses current track if not specified)
+
     .PARAMETER Scroll
     Enable scrollable display with keyboard navigation
-    
+
+    .PARAMETER Karaoke
+    Enable karaoke mode with synchronized lyrics (if available)
+
+    .PARAMETER Provider
+    Lyrics provider to use: auto (default), genius, musixmatch, mock
+
     .EXAMPLE
     Get-SpotifyLyrics
     Get lyrics for currently playing track
-    
+
     .EXAMPLE
     Get-SpotifyLyrics -Artist "Queen" -Track "Bohemian Rhapsody"
     Get lyrics for specific track
-    
+
+    .EXAMPLE
+    Get-SpotifyLyrics -Karaoke
+    Display lyrics in karaoke mode synced with playback
+
     .EXAMPLE
     lyrics
     Quick alias to get current track lyrics
     #>
-    
+
     param(
         [string]$Artist,
         [string]$Track,
-        [switch]$Scroll
+        [switch]$Scroll,
+        [switch]$Karaoke,
+
+        [ValidateSet("auto", "genius", "musixmatch", "mock")]
+        [string]$Provider = "auto"
     )
-    
-    # Skip live features check for now - just show lyrics info
-    
+
     try {
-        # Initialize live features if not already done
-        if (-not (Get-SpotifyLiveFeaturesStatus).IsInitialized) {
-            Write-Host "🔄 Initializing live features..." -ForegroundColor Cyan
-            Initialize-SpotifyLiveFeatures
+        # Get current track info if not specified
+        if (-not $Artist -or -not $Track) {
+            Write-Host "🎵 Getting current track info..." -ForegroundColor Cyan
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+
+            if (-not $currentTrack -or -not $currentTrack.item) {
+                Write-Host "❌ No track currently playing" -ForegroundColor Red
+                return
+            }
+
+            $item = $currentTrack.item
+            $Artist = ($item.artists | ForEach-Object { $_.name }) -join ", "
+            $Track = $item.name
         }
-        
-        $lyricsResult = $null
-        
-        if ($Artist -and $Track) {
-            # Get lyrics for specific track
-            Write-Host "🎵 Fetching lyrics for: $Artist - $Track" -ForegroundColor Cyan
-            $lyricsResult = Get-SpotifyLyrics -Artist $Artist -Track $Track
-        } else {
-            # Get lyrics for current track
-            Write-Host "🎵 Fetching lyrics for current track..." -ForegroundColor Cyan
-            
-            # Get current track info
-            $currentTrack = Show-SpotifyTrack 2>&1 | Out-String
-            if ($currentTrack -match "🎵 (.+)" -and $currentTrack -match "👤 (.+)") {
-                $trackName = $matches[1].Trim()
-                $artistName = $matches[1].Trim()
-                
-                # Extract from plays-now output
-                plays-now
+
+        Write-Host "🎤 Fetching lyrics for: $Artist - $Track" -ForegroundColor Green
+        Write-Host ""
+
+        # Import Lyrics Engine
+        $lyricsModulePath = Join-Path $PSScriptRoot "modules\Lyrics\LyricsEngine.psm1"
+        if (Test-Path $lyricsModulePath) {
+            Import-Module $lyricsModulePath -Force -ErrorAction SilentlyContinue
+
+            # Configure provider
+            $config = @{
+                DataDirectory = Join-Path $env:APPDATA "SpotifyCLI\Lyrics"
+                CacheEnabled = $true
+                CacheTtlDays = 30
+            }
+
+            # Add API keys if available
+            if ($env:GENIUS_ACCESS_TOKEN) {
+                $config.GeniusApiKey = $env:GENIUS_ACCESS_TOKEN
+            }
+            if ($env:MUSIXMATCH_API_KEY) {
+                $config.MusixmatchApiKey = $env:MUSIXMATCH_API_KEY
+            }
+
+            # Create lyrics manager
+            $lyricsManager = New-LyricsManager -Configuration $config
+
+            # Fetch lyrics
+            Write-Host "🔍 Searching for lyrics..." -ForegroundColor Cyan
+            $result = $lyricsManager.GetLyrics($Artist, $Track)
+
+            if ($result.Success) {
+                Write-Host "✅ Lyrics found!" -ForegroundColor Green
+                Write-Host "📝 Source: $($result.Source)" -ForegroundColor Gray
                 Write-Host ""
-                
-                # Check if Genius API is configured
-                if ($env:GENIUS_ACCESS_TOKEN) {
-                    Write-Host "🎤 Genius API: ✅ Configured" -ForegroundColor Green
-                    Write-Host "🔍 Searching for lyrics..." -ForegroundColor Cyan
-                    
-                    try {
-                        # Simple Genius API search
-                        $searchQuery = "$artistName $trackName"
-                        $searchUrl = "https://api.genius.com/search?q=$([System.Web.HttpUtility]::UrlEncode($searchQuery))"
-                        
-                        $headers = @{
-                            'Authorization' = "Bearer $env:GENIUS_ACCESS_TOKEN"
-                        }
-                        
-                        $searchResponse = Invoke-RestMethod -Method Post -Uri $searchUrl -Headers $headers
-                        
-                        if ($searchResponse.response.hits.Count -gt 0) {
-                            $song = $searchResponse.response.hits[0].result
-                            Write-Host "✅ Found: $($song.full_title)" -ForegroundColor Green
-                            Write-Host "🔗 Lyrics URL: $($song.url)" -ForegroundColor Cyan
-                            Write-Host ""
-                            Write-Host "💡 Note: Genius API doesn't provide direct lyrics text." -ForegroundColor Yellow
-                            Write-Host "   Visit the URL above to read the full lyrics." -ForegroundColor Gray
-                            
-                            return @{
-                                Success = $true
-                                Title = $song.title
-                                Artist = $song.primary_artist.name
-                                Url = $song.url
-                                Message = "Lyrics URL found"
-                            }
+
+                if ($Karaoke -and $result.HasSyncedLyrics) {
+                    # Use Windows Form for karaoke mode (no flicker!)
+                    $lyricsFormPath = Join-Path $PSScriptRoot "modules\UI\LyricsFormDisplay.psm1"
+                    if (Test-Path $lyricsFormPath) {
+                        Import-Module $lyricsFormPath -Force -ErrorAction SilentlyContinue
+
+                        # Get current playback position
+                        $currentPlayback = Invoke-SpotifyApi -Method GET -Path "/me/player"
+                        $initialPositionMs = if ($currentPlayback -and $currentPlayback.progress_ms) {
+                            $currentPlayback.progress_ms
                         } else {
-                            Write-Host "❌ No lyrics found on Genius" -ForegroundColor Red
+                            0
                         }
-                    } catch {
-                        Write-Host "❌ Error searching Genius: $($_.Exception.Message)" -ForegroundColor Red
+
+                        Show-LyricsForm -LyricsData $result -InitialPositionMs $initialPositionMs
+                    } else {
+                        Write-Host "❌ Lyrics Form module not found" -ForegroundColor Red
                     }
-                } else {
-                    Write-Host "🎤 Lyrics Integration Status:" -ForegroundColor Yellow
-                    Write-Host "   • Genius API: ❌ Not configured" -ForegroundColor Gray
-                    Write-Host "   • Musixmatch API: ❌ Not configured" -ForegroundColor Gray
+                } elseif ($Scroll) {
+                    Write-Host "📜 Scrollable Lyrics View" -ForegroundColor Cyan
+                    Write-Host ("=" * 60) -ForegroundColor DarkGray
                     Write-Host ""
-                    Write-Host "💡 To enable lyrics:" -ForegroundColor Cyan
-                    Write-Host "   1. Get a free Genius API token at https://genius.com/api-clients" -ForegroundColor White
-                    Write-Host "   2. Set: `$env:GENIUS_ACCESS_TOKEN = 'your_token'" -ForegroundColor White
+                    Write-Host "💡 Use arrow keys to scroll, 'q' to quit" -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host $result.FullText -ForegroundColor White
+                } else {
+                    # Standard display
+                    Write-Host "📄 Lyrics" -ForegroundColor Cyan
+                    Write-Host ("=" * 60) -ForegroundColor DarkGray
+                    Write-Host ""
+                    Write-Host $result.FullText -ForegroundColor White
                 }
+
+                if ($result.HasSyncedLyrics) {
+                    Write-Host ""
+                    Write-Host "🎤 Synchronized lyrics available! Try: lyrics -Karaoke" -ForegroundColor Green
+                }
+
+                if ($result.Url) {
+                    Write-Host ""
+                    Write-Host "🔗 Full lyrics at: $($result.Url)" -ForegroundColor Cyan
+                }
+
             } else {
-                Write-Host "❌ Could not get current track information" -ForegroundColor Red
-            }
-            
-            return @{
-                Success = $false
-                Message = "Lyrics not found or not configured"
-            }
-        }
-        
-        if ($lyricsResult.Success) {
-            Write-Host "✅ Lyrics found!" -ForegroundColor Green
-            Write-Host "📝 Source: $($lyricsResult.Source)" -ForegroundColor Gray
-            Write-Host ""
-            
-            if ($Scroll) {
-                # TODO: Implement scrollable display
-                Write-Host "📜 Scrollable display (use arrow keys, 'q' to quit):" -ForegroundColor Yellow
-            }
-            
-            # Display lyrics
-            Write-Host $lyricsResult.Lyrics -ForegroundColor White
-            
-            if ($lyricsResult.HasSyncedLyrics) {
+                Write-Host "❌ Lyrics not found" -ForegroundColor Red
                 Write-Host ""
-                Write-Host "🎤 Synchronized lyrics available" -ForegroundColor Green
+
+                # Show configuration help
+                Write-Host "💡 To enable real lyrics providers:" -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "Genius (recommended):" -ForegroundColor Cyan
+                Write-Host "  1. Get API token: https://genius.com/api-clients" -ForegroundColor Gray
+                Write-Host '  2. Set: $env:GENIUS_ACCESS_TOKEN = "your_token"' -ForegroundColor Gray
+                Write-Host ""
+                Write-Host "Musixmatch:" -ForegroundColor Cyan
+                Write-Host "  1. Get API key: https://developer.musixmatch.com/" -ForegroundColor Gray
+                Write-Host '  2. Set: $env:MUSIXMATCH_API_KEY = "your_key"' -ForegroundColor Gray
+                Write-Host ""
+                Write-Host "Current status:" -ForegroundColor Yellow
+                $geniusStatus = if ($env:GENIUS_ACCESS_TOKEN) { "✅" } else { "❌" }
+                $musixStatus = if ($env:MUSIXMATCH_API_KEY) { "✅" } else { "❌" }
+                Write-Host "  Genius: $geniusStatus" -ForegroundColor White
+                Write-Host "  Musixmatch: $musixStatus" -ForegroundColor White
             }
-            
         } else {
-            Write-Host "❌ Lyrics not found: $($lyricsResult.Error)" -ForegroundColor Red
-            Write-Host "💡 Try searching manually or check if the track name is correct" -ForegroundColor Yellow
+            Write-Host "❌ Lyrics Engine not found" -ForegroundColor Red
+            Write-Host "💡 Lyrics module may not be properly installed" -ForegroundColor Yellow
         }
-        
+
     } catch {
         Write-Host "❌ Failed to get lyrics: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Verbose $_.ScriptStackTrace
+    }
+}
+
+function Show-SpotifyLyricsForm {
+    <#
+    .SYNOPSIS
+    Show lyrics in a Windows Form window with real-time highlighting
+
+    .DESCRIPTION
+    Opens a non-blocking Windows Form that displays synchronized lyrics
+    with highlighting that follows the currently playing track.
+
+    .PARAMETER Artist
+    Artist name (optional - uses current track if not specified)
+
+    .PARAMETER Track
+    Track name (optional - uses current track if not specified)
+
+    .EXAMPLE
+    Show-SpotifyLyricsForm
+    Show lyrics for currently playing track
+
+    .EXAMPLE
+    slw
+    Quick alias to show lyrics window (slw = Show Lyrics Window)
+
+    .EXAMPLE
+    ShowLyrics
+    Alternative alias to show lyrics window
+    #>
+
+    param(
+        [string]$Artist,
+        [string]$Track
+    )
+
+    try {
+        # Get current track info if not specified
+        if (-not $Artist -or -not $Track) {
+            Write-Host "🎵 Getting current track info..." -ForegroundColor Cyan
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+
+            if (-not $currentTrack -or -not $currentTrack.item) {
+                Write-Host "❌ No track currently playing" -ForegroundColor Red
+                return
+            }
+
+            $item = $currentTrack.item
+            $Artist = ($item.artists | ForEach-Object { $_.name }) -join ", "
+            $Track = $item.name
+        }
+
+        Write-Host "🎤 Fetching lyrics for: $Artist - $Track" -ForegroundColor Green
+
+        # Import Lyrics Engine
+        $lyricsModulePath = Join-Path $PSScriptRoot "modules\Lyrics\LyricsEngine.psm1"
+        if (Test-Path $lyricsModulePath) {
+            Import-Module $lyricsModulePath -Force -ErrorAction SilentlyContinue
+
+            # Configure
+            $config = @{
+                DataDirectory = Join-Path $env:APPDATA "SpotifyCLI\Lyrics"
+                CacheEnabled = $true
+                CacheTtlDays = 30
+            }
+
+            if ($env:GENIUS_ACCESS_TOKEN) {
+                $config.GeniusApiKey = $env:GENIUS_ACCESS_TOKEN
+            }
+            if ($env:MUSIXMATCH_API_KEY) {
+                $config.MusixmatchApiKey = $env:MUSIXMATCH_API_KEY
+            }
+
+            # Create lyrics manager
+            $lyricsManager = New-LyricsManager -Configuration $config
+
+            # Fetch lyrics
+            $result = $lyricsManager.GetLyrics($Artist, $Track)
+
+            if ($result.Success) {
+                # Import and show form
+                $lyricsFormPath = Join-Path $PSScriptRoot "modules\UI\LyricsFormDisplay.psm1"
+                if (Test-Path $lyricsFormPath) {
+                    Import-Module $lyricsFormPath -Force -ErrorAction SilentlyContinue
+
+                    # Get current playback position
+                    $currentPlayback = Invoke-SpotifyApi -Method GET -Path "/me/player"
+                    $initialPositionMs = if ($currentPlayback -and $currentPlayback.progress_ms) {
+                        $currentPlayback.progress_ms
+                    } else {
+                        0
+                    }
+
+                    Show-LyricsForm -LyricsData $result -InitialPositionMs $initialPositionMs
+                } else {
+                    Write-Host "❌ Lyrics Form module not found" -ForegroundColor Red
+                }
+            } else {
+                Write-Host "❌ Lyrics not found: $($result.Error)" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "❌ Lyrics Engine not found" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "❌ Failed to show lyrics: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Verbose $_.ScriptStackTrace
     }
 }
 
@@ -897,7 +1123,7 @@ function Show-SpotifyWelcome {
     Write-Host ""
     Write-Host "💡 GETTING HELP:" -ForegroundColor Cyan
     Write-Host "• Get-SpotifyHelp                    # Complete command reference" -ForegroundColor White
-    Write-Host "• Get-SpotifyHelp <command>          # Specific command help" -ForegroundColor White
+    Write-Host "• Get-SpotifyHelp COMMAND          # Specific command help" -ForegroundColor White
     Write-Host "• Test-SpotifyLiveFeatures           # Diagnose any issues" -ForegroundColor White
     Write-Host ""
     
@@ -1078,14 +1304,19 @@ function Get-TerminalCapabilities {
     
     # Basic check for interactive input support (ReadKey)
     try {
-        # Check if ReadKey method is available and not just a placeholder
-        # This can still fail in some environments (e.g., non-interactive shells)
-        # For now, assume it's supported if the method exists.
-        if ($Host.UI.RawUI.Methods.Name -contains "ReadKey") {
+        # Check if ReadKey method is available
+        $testKey = $null
+        if ($Host.UI.RawUI.PSObject.Methods['ReadKey']) {
+            # Try to actually use it (with timeout to avoid hanging)
             $capabilities.SupportsInteractiveInput = $true
         }
     } catch {
         $capabilities.SupportsInteractiveInput = $false
+    }
+
+    # If running in PowerShell 7+, always enable interactive input
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        $capabilities.SupportsInteractiveInput = $true
     }
 
     return $capabilities
@@ -1105,21 +1336,21 @@ function Invoke-HelpCommand {
         Write-Host "  /pause             - Pause playback" -ForegroundColor White
         Write-Host "  /next              - Skip to next track" -ForegroundColor White
         Write-Host "  /previous          - Go to previous track" -ForegroundColor White
-        Write-Host "  /seek <seconds>    - Seek forward/backward (use negative for backward)" -ForegroundColor White
-        Write-Host "  /volume <0-100>    - Set playback volume" -ForegroundColor White
-        Write-Host "  /shuffle <on|off>  - Toggle shuffle mode" -ForegroundColor White
-        Write-Host "  /repeat <track|context|off> - Set repeat mode" -ForegroundColor White
+        Write-Host "  /seek SECONDS      - Seek forward/backward (use negative for backward)" -ForegroundColor White
+        Write-Host "  /volume 0-100      - Set playback volume" -ForegroundColor White
+        Write-Host "  /shuffle on|off    - Toggle shuffle mode" -ForegroundColor White
+        Write-Host "  /repeat MODE       - Set repeat mode (track/context/off)" -ForegroundColor White
         Write-Host ""
         Write-Host "DEVICE MANAGEMENT:" -ForegroundColor Yellow
         Write-Host "  /devices           - List available Spotify Connect devices" -ForegroundColor White
-        Write-Host "  /transfer <id>     - Transfer playback to device" -ForegroundColor White
+        Write-Host "  /transfer ID       - Transfer playback to device" -ForegroundColor White
         Write-Host ""
         Write-Host "SEARCH & PLAYBACK:" -ForegroundColor Yellow
-        Write-Host "  /search <query>    - Search for tracks, artists, albums" -ForegroundColor White
-        Write-Host "  /queue <uri>       - Add track to playback queue" -ForegroundColor White
-        Write-Host "  /play track <uri>     - Play specific track" -ForegroundColor White
-        Write-Host "  /play album <uri>     - Play specific album" -ForegroundColor White
-        Write-Host "  /play playlist <uri>  - Play specific playlist" -ForegroundColor White
+        Write-Host "  /search QUERY      - Search for tracks, artists, albums" -ForegroundColor White
+        Write-Host "  /queue URI         - Add track to playback queue" -ForegroundColor White
+        Write-Host "  /play track URI    - Play specific track" -ForegroundColor White
+        Write-Host "  /play album URI    - Play specific album" -ForegroundColor White
+        Write-Host "  /play playlist URI - Play specific playlist" -ForegroundColor White
         Write-Host ""
         Write-Host "LIBRARY MANAGEMENT:" -ForegroundColor Yellow
         Write-Host "  /playlists         - Show your playlists" -ForegroundColor White
@@ -1136,12 +1367,12 @@ function Invoke-HelpCommand {
         Write-Host "  /config [key] [value] - View/modify configuration" -ForegroundColor White
         Write-Host "  /config-live [command] - Manage live features configuration" -ForegroundColor White
         Write-Host "  /history           - Show playback history" -ForegroundColor White
-        Write-Host "  /notifications <on|off> - Toggle notifications" -ForegroundColor White
-        Write-Host "  /auto-refresh <seconds> - Auto-refresh display every X seconds" -ForegroundColor White
+        Write-Host "  /notifications on|off - Toggle notifications" -ForegroundColor White
+        Write-Host "  /auto-refresh SECONDS - Auto-refresh display every X seconds" -ForegroundColor White
         Write-Host "  /help [command]    - Show help (add command for detailed help)" -ForegroundColor White
         Write-Host "  /quit              - Exit the CLI" -ForegroundColor White
         Write-Host ""
-        Write-Host "For detailed help on a specific command, use: /help <command>" -ForegroundColor Gray
+        Write-Host "For detailed help on a specific command, use: /help COMMAND" -ForegroundColor Gray
         Write-Host "Example: /help seek" -ForegroundColor Gray
         return
     }
@@ -1166,12 +1397,12 @@ function Invoke-HelpCommand {
             Write-Host "NOTE: Compact mode can also be enabled globally via /config CompactMode true" -ForegroundColor Gray
         }
         "seek" {
-            Write-Host "COMMAND: /seek <seconds>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /seek SECONDS" -ForegroundColor Cyan
             Write-Host "=====================" -ForegroundColor Cyan
             Write-Host "Seeks forward or backward in the current track." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /seek <seconds>   - Positive numbers seek forward, negative backward" -ForegroundColor White
+            Write-Host "  /seek SECONDS   - Positive numbers seek forward, negative backward" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /seek 30          - Skip forward 30 seconds" -ForegroundColor Gray
@@ -1182,12 +1413,12 @@ function Invoke-HelpCommand {
             Write-Host "  - Active device with current track playing" -ForegroundColor Gray
         }
         "volume" {
-            Write-Host "COMMAND: /volume <0-100>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /volume 0-100" -ForegroundColor Cyan
             Write-Host "=====================" -ForegroundColor Cyan
             Write-Host "Sets the playback volume on the active device." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /volume <level>   - Volume level from 0 (mute) to 100 (maximum)" -ForegroundColor White
+            Write-Host "  /volume LEVEL   - Volume level from 0 (mute) to 100 (maximum)" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /volume 50        - Set volume to 50%" -ForegroundColor Gray
@@ -1199,7 +1430,7 @@ function Invoke-HelpCommand {
             Write-Host "  - Active device that supports volume control" -ForegroundColor Gray
         }
         "shuffle" {
-            Write-Host "COMMAND: /shuffle <on|off>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /shuffle on|off" -ForegroundColor Cyan
             Write-Host "=======================" -ForegroundColor Cyan
             Write-Host "Enables or disables shuffle mode for the current playback context." -ForegroundColor White
             Write-Host ""
@@ -1216,7 +1447,7 @@ function Invoke-HelpCommand {
             Write-Host "  - Active playback context (playlist, album, etc.)" -ForegroundColor Gray
         }
         "repeat" {
-            Write-Host "COMMAND: /repeat <track|context|off>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /repeat MODE" -ForegroundColor Cyan
             Write-Host "===================================" -ForegroundColor Cyan
             Write-Host "Sets the repeat mode for playback." -ForegroundColor White
             Write-Host ""
@@ -1251,12 +1482,12 @@ function Invoke-HelpCommand {
             Write-Host "TIP: Use device IDs with /transfer command to switch playback" -ForegroundColor Gray
         }
         "transfer" {
-            Write-Host "COMMAND: /transfer <device_id>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /transfer DEVICE_ID" -ForegroundColor Cyan
             Write-Host "=============================" -ForegroundColor Cyan
             Write-Host "Transfers playback to a different Spotify Connect device." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /transfer <id>    - Transfer to device with specified ID" -ForegroundColor White
+            Write-Host "  /transfer ID    - Transfer to device with specified ID" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /transfer abc123  - Transfer to device with ID 'abc123')" -ForegroundColor Gray
@@ -1271,12 +1502,12 @@ function Invoke-HelpCommand {
             Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
         }
         "search" {
-            Write-Host "COMMAND: /search <query>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /search QUERY" -ForegroundColor Cyan
             Write-Host "=====================" -ForegroundColor Cyan
             Write-Host "Searches for tracks, artists, and albums on Spotify." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /search <query>   - Search for music content" -ForegroundColor White
+            Write-Host "  /search QUERY   - Search for music content" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /search bohemian rhapsody" -ForegroundColor Gray
@@ -1289,12 +1520,12 @@ function Invoke-HelpCommand {
             Write-Host "  - Results show URIs that can be used with /play and /queue commands" -ForegroundColor Gray
         }
         "queue" {
-            Write-Host "COMMAND: /queue <track_uri>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /queue TRACK_URI" -ForegroundColor Cyan
             Write-Host "=========================" -ForegroundColor Cyan
             Write-Host "Adds a track to the playback queue." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /queue <uri>      - Add track to queue using Spotify URI" -ForegroundColor White
+            Write-Host "  /queue URI      - Add track to queue using Spotify URI" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /queue spotify:track:4iV5W9uYEdYUVa79Axb7Rh" -ForegroundColor Gray
@@ -1309,14 +1540,14 @@ function Invoke-HelpCommand {
             Write-Host "  - Active device with playback" -ForegroundColor Gray
         }
         "play" {
-            Write-Host "COMMAND: /play <type> <uri>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /play TYPE URI" -ForegroundColor Cyan
             Write-Host "=========================" -ForegroundColor Cyan
             Write-Host "Plays specific content immediately." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /play track <uri>     - Play specific track" -ForegroundColor White
-            Write-Host "  /play album <uri>     - Play specific album" -ForegroundColor White
-            Write-Host "  /play playlist <uri>  - Play specific playlist" -ForegroundColor White
+            Write-Host "  /play track URI     - Play specific track" -ForegroundColor White
+            Write-Host "  /play album URI     - Play specific album" -ForegroundColor White
+            Write-Host "  /play playlist URI  - Play specific playlist" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /play track spotify:track:4iV5W9uYEdYUVa79Axb7Rh" -ForegroundColor Gray
@@ -1345,7 +1576,7 @@ function Invoke-HelpCommand {
             Write-Host "  - Playlist URI (for use with /play playlist command)" -ForegroundColor Gray
             Write-Host "  - Public/private status" -ForegroundColor Gray
             Write-Host ""
-            Write-Host "TIP: Copy playlist URIs to use with /play playlist <uri>" -ForegroundColor Gray
+            Write-Host "TIP: Copy playlist URIs to use with /play playlist URI" -ForegroundColor Gray
         }
         "liked" {
             Write-Host "COMMAND: /liked" -ForegroundColor Cyan
@@ -1423,7 +1654,7 @@ function Invoke-HelpCommand {
             Write-Host "  /config           - Show current configuration" -ForegroundColor White
             Write-Host "  /config list      - Show available configuration keys" -ForegroundColor White
             Write-Host "  /config reset     - Reset to default configuration" -ForegroundColor White
-            Write-Host "  /config <key> <value> - Set configuration value" -ForegroundColor White
+            Write-Host "  /config KEY VALUE - Set configuration value" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /config CompactMode true" -ForegroundColor Gray
@@ -1476,12 +1707,12 @@ function Invoke-HelpCommand {
             Write-Host ""
             Write-Host "CONFIGURATION:" -ForegroundColor Yellow
             Write-Host "  - Enable/disable: /config HistoryEnabled true/false" -ForegroundColor Gray
-            Write-Host "  - Max entries: /config MaxHistoryEntries <number>" -ForegroundColor Gray
+            Write-Host "  - Max entries: /config MaxHistoryEntries NUMBER" -ForegroundColor Gray
             Write-Host ""
             Write-Host "NOTE: This is different from /recent (Spotify's recent tracks)" -ForegroundColor Gray
         }
         "notifications" {
-            Write-Host "COMMAND: /notifications <on|off>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /notifications on|off" -ForegroundColor Cyan
             Write-Host "===============================" -ForegroundColor Cyan
             Write-Host "Enable or disable Windows toast notifications for track changes." -ForegroundColor White
             Write-Host ""
@@ -1500,12 +1731,12 @@ function Invoke-HelpCommand {
             Write-Host "NOTE: Can also be configured via /config NotificationsEnabled true/false" -ForegroundColor Gray
         }
         "auto-refresh" {
-            Write-Host "COMMAND: /auto-refresh <seconds>" -ForegroundColor Cyan
+            Write-Host "COMMAND: /auto-refresh SECONDS" -ForegroundColor Cyan
             Write-Host "===============================" -ForegroundColor Cyan
             Write-Host "Automatically refresh the display at specified intervals." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /auto-refresh <seconds> - Set refresh interval (0 to disable)" -ForegroundColor White
+            Write-Host "  /auto-refresh SECONDS - Set refresh interval (0 to disable)" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
             Write-Host "  /auto-refresh 5   - Refresh every 5 seconds" -ForegroundColor Gray
@@ -1516,7 +1747,7 @@ function Invoke-HelpCommand {
             Write-Host "  - Press any key to interrupt and return to command mode" -ForegroundColor Gray
             Write-Host "  - Useful for monitoring playback without manual commands" -ForegroundColor Gray
             Write-Host ""
-            Write-Host "NOTE: Can also be configured via /config AutoRefreshInterval <seconds>" -ForegroundColor Gray
+            Write-Host "NOTE: Can also be configured via /config AutoRefreshInterval SECONDS" -ForegroundColor Gray
         }
         "live" {
             Write-Host "COMMAND: /live [mode]" -ForegroundColor Cyan
@@ -1616,7 +1847,8 @@ function Invoke-ConfigCommand {
         $config = Get-SpotifyConfig
         Write-Host "Current Spotify CLI Configuration:" -ForegroundColor Cyan
         Write-Host "=================================" -ForegroundColor Cyan
-        Write-Host "PreferredDevice: $($config.PreferredDevice ?? 'None')" -ForegroundColor White
+        $deviceDisplay = if ($config.PreferredDevice) { $config.PreferredDevice } else { 'None' }
+        Write-Host "PreferredDevice: $deviceDisplay" -ForegroundColor White
         Write-Host "CompactMode: $($config.CompactMode)" -ForegroundColor White
         Write-Host "NotificationsEnabled: $($config.NotificationsEnabled)" -ForegroundColor White
         Write-Host "AutoRefreshInterval: $($config.AutoRefreshInterval) seconds" -ForegroundColor White
@@ -1628,7 +1860,7 @@ function Invoke-ConfigCommand {
             Write-Host "  $($_.Key): $($_.Value)" -ForegroundColor White
         }
         Write-Host ""
-        Write-Host "Usage: /config <key> <value> - Set a configuration value" -ForegroundColor Gray
+        Write-Host "Usage: /config KEY VALUE - Set a configuration value" -ForegroundColor Gray
         Write-Host "       /config reset - Reset to default configuration" -ForegroundColor Gray
         Write-Host "       /config list - Show available configuration keys" -ForegroundColor Gray
         return
@@ -1663,7 +1895,7 @@ function Invoke-ConfigCommand {
     }
     
     if ($null -eq $value) {
-        Write-Error "Please provide a value for '$key'. Usage: /config <key> <value>"
+        Write-Error "Please provide a value for '$key'. Usage: /config KEY VALUE"
         return
     }
     
@@ -1714,7 +1946,7 @@ function Invoke-ConfigCommand {
         }
         
         if (-not $config.ContainsKey($key)) {
-            Write-Error "Unknown configuration key '$key'. Available keys: $($config.Keys -join ', '), Colors.*
+            Write-Error "Unknown configuration key '$key'. Available keys: $($config.Keys -join ', '), Colors.*"
             return
         }
         
@@ -1827,7 +2059,7 @@ function Invoke-LiveFeaturesConfigCommand {
             "restore" {
                 if ([string]::IsNullOrWhiteSpace($commandArgs)) {
                     Write-Error "Missing backup file path"
-                    Write-Host "Usage: /config-live restore <backup-file-path>" -ForegroundColor Gray
+                    Write-Host "Usage: /config-live restore BACKUP_FILE_PATH" -ForegroundColor Gray
                 } else {
                     Restore-LiveFeaturesConfig -Path $commandArgs
                 }
@@ -1844,7 +2076,7 @@ function Invoke-LiveFeaturesConfigCommand {
             "import" {
                 if ([string]::IsNullOrWhiteSpace($commandArgs)) {
                     Write-Error "Missing configuration file path"
-                    Write-Host "Usage: /config-live import <config-file-path>" -ForegroundColor Gray
+                    Write-Host "Usage: /config-live import CONFIG_FILE_PATH" -ForegroundColor Gray
                 } else {
                     Import-LiveFeaturesConfig -Path $commandArgs
                 }
@@ -1868,9 +2100,9 @@ function Invoke-LiveFeaturesConfigCommand {
                 Write-Host "  reset [section]          - Reset to defaults" -ForegroundColor White
                 Write-Host "  schema [section]         - Show valid settings" -ForegroundColor White
                 Write-Host "  backup [path]            - Create backup" -ForegroundColor White
-                Write-Host "  restore <path>           - Restore from backup" -ForegroundColor White
+                Write-Host "  restore PATH             - Restore from backup" -ForegroundColor White
                 Write-Host "  export [path]            - Export configuration" -ForegroundColor White
-                Write-Host "  import <path>            - Import configuration" -ForegroundColor White
+                Write-Host "  import PATH              - Import configuration" -ForegroundColor White
                 Write-Host "  test                     - Validate configuration" -ForegroundColor White
                 Write-Host "  info                     - Show system information" -ForegroundColor White
                 Write-Host "  help                     - Show this help" -ForegroundColor White
@@ -1922,6 +2154,7 @@ Export-ModuleMember -Function @(
     'Start-SpotifyLive',
     'Start-SpotifySidecar',
     'Get-SpotifyLyrics',
+    'Show-SpotifyLyricsForm',
     'Get-SpotifyStats',
     'Test-SpotifyLiveFeatures',
     'Show-LiveFeaturesTroubleshootingGuide',
@@ -1935,5 +2168,15 @@ Export-ModuleMember -Function @(
     'Invoke-HelpCommand',
     'Invoke-ConfigCommand',
     'Invoke-LiveFeaturesConfigCommand',
-    'ConvertTo-ConfigValue'
+    'ConvertTo-ConfigValue',
+    'Get-WindowsTerminalPath',
+    'Start-SpotifyCliInNewWindow',
+    'Start-SpotifyCliInWindowsTerminalSplit',
+    'Show-SpotifyForm'
 )
+
+# Create convenient aliases
+Set-Alias -Name slw -Value Show-SpotifyLyricsForm
+Set-Alias -Name ShowLyrics -Value Show-SpotifyLyricsForm
+
+Export-ModuleMember -Alias @('slw', 'ShowLyrics')

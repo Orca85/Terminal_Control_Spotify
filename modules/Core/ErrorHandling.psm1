@@ -526,7 +526,8 @@ class GracefulDegradationManager {
             # Try to get cached data based on source type
             switch ($sourceType) {
                 "ApiClient" {
-                    if ($source -is [EnhancedSpotifyApiClient]) {
+                    # Check if source has GetCachedData method (avoid circular dependency)
+                    if ($source -and ($source | Get-Member -Name "GetCachedData" -MemberType Method)) {
                         return $source.GetCachedData($key)
                     }
                 }

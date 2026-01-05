@@ -296,11 +296,11 @@ function Show-SpotifyTrack {
             }
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not get current track." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }

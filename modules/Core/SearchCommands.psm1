@@ -16,26 +16,10 @@ if (Test-Path $script:LiveFeaturesModulePath) {
     $script:LiveFeaturesAvailable = $false
 }
 
-# --- Import Core Logic Modules ---
-try {
-    # Foundational Modules
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\ErrorHandling.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\StateManager.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\LegacyConfigManager.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\LegacyApiClient.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\UIHelpers.psm1") -Force
+# Note: Core modules are imported by SpotifyModule.psm1
+# No need to import them again here
 
-    # Command Modules
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\AppCommands.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\PlaybackCommands.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\SearchCommands.psm1") -Force
-    Import-Module (Join-Path $PSScriptRoot "LiveFeatures\Core\PlaylistQueueCommands.psm1") -Force
-}
-catch {
-    Write-Warning "Failed to load Core modules: $($_.Exception.Message)"
-}
-
-# --- Remaining Functions (To be modularized or migrated) ---
+# --- Search Functions ---
 
 # Live Features Integration Commands
 function Start-SpotifyLive {
@@ -1075,11 +1059,11 @@ function devices {
         Write-Host ""
         Write-Host "💡 Tip: Use 'transfer 1' to switch to device #1" -ForegroundColor Gray
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         if ($_.Exception.StatusCode -eq 403) {
             Write-Host "🚫 Permission Error: Device management requires Spotify Premium." -ForegroundColor Red
         }
@@ -1094,18 +1078,87 @@ function devices {
     }
 }
 function search {
-    param([string]$Query)
+    <#
+    .SYNOPSIS
+    Search for music with advanced filters
+    .PARAMETER Query
+    Search query (supports Spotify search syntax)
+    .PARAMETER Type
+    Filter by type: track, artist, album, episode, or all (default)
+    .PARAMETER Genre
+    Filter by genre
+    .PARAMETER Year
+    Filter by release year (e.g., 2023 or 2020-2023)
+    .PARAMETER Limit
+    Number of results to return (default: 10, max: 50)
+    .EXAMPLE
+    search "bohemian rhapsody"
+    Basic search for tracks, artists, albums, and episodes
+    .EXAMPLE
+    search -Query "love" -Type track -Limit 20
+    Search for 20 tracks containing "love"
+    .EXAMPLE
+    search -Query "rock" -Genre "classic rock" -Year 1970-1979
+    Advanced search with genre and year filters
+    #>
+    param(
+        [Parameter(Position=0)]
+        [string]$Query,
+
+        [ValidateSet("track", "artist", "album", "episode", "all")]
+        [string]$Type = "all",
+
+        [string]$Genre,
+
+        [string]$Year,
+
+        [int]$Limit = 10
+    )
+
     if ([string]::IsNullOrWhiteSpace($Query)) {
         Write-Host "Usage: search '<query>'" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Advanced options:" -ForegroundColor Cyan
+        Write-Host "  search '<query>' -Type track     # Search only tracks" -ForegroundColor Gray
+        Write-Host "  search '<query>' -Genre rock     # Filter by genre" -ForegroundColor Gray
+        Write-Host "  search '<query>' -Year 2023      # Filter by year" -ForegroundColor Gray
+        Write-Host "  search '<query>' -Limit 20       # Show more results" -ForegroundColor Gray
         return
     }
+
+    # Build advanced query
+    $advancedQuery = $Query
+
+    if ($Genre) {
+        $advancedQuery += " genre:$Genre"
+    }
+
+    if ($Year) {
+        $advancedQuery += " year:$Year"
+    }
+
+    # Validate limit
+    $Limit = [Math]::Min(50, [Math]::Max(1, $Limit))
+
     try {
+        $searchType = if ($Type -eq "all") { "track,artist,album,episode" } else { $Type }
+
         $searchQuery = @{
-            q = $Query
-            type = "track,artist,album,episode"
-            limit = "10"
+            q = $advancedQuery
+            type = $searchType
+            limit = $Limit.ToString()
         }
-        Write-Host "Searching for: $Query" -ForegroundColor Gray
+
+        # Show search info
+        Write-Host "🔍 Searching for: $Query" -ForegroundColor Cyan
+        if ($Genre -or $Year) {
+            Write-Host "   Filters: " -ForegroundColor Gray -NoNewline
+            if ($Genre) { Write-Host "Genre=$Genre " -ForegroundColor Yellow -NoNewline }
+            if ($Year) { Write-Host "Year=$Year" -ForegroundColor Yellow -NoNewline }
+            Write-Host ""
+        }
+        Write-Host ""
+
         $results = Invoke-SpotifyApi -Method GET -Path "/search" -Query $searchQuery
         if (-not $results) {
             Write-Host "🔍 No results found for '$Query'." -ForegroundColor Yellow
@@ -1183,11 +1236,11 @@ function search {
             }
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Search failed: $($_.Exception.Message)" -ForegroundColor Red
         Write-Host "💡 Check your internet connection and Spotify authentication." -ForegroundColor Yellow
     }
@@ -1258,11 +1311,11 @@ function search-albums {
         Write-Host ""
         Write-Host "💡 Tip: Use 'play-album 1' to play album #1, or 'queue-album 2' to add album #2 to queue" -ForegroundColor Gray
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Album search failed: $($_.Exception.Message)" -ForegroundColor Red
         Write-Host "💡 Check your internet connection and Spotify authentication." -ForegroundColor Yellow
     }
@@ -1322,11 +1375,11 @@ function play-album {
             }
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not play album." -ForegroundColor Red
         if ($_.Exception.StatusCode -eq 403) {
             Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
@@ -1395,13 +1448,13 @@ function queue-album {
                     # Small delay to avoid rate limiting
                     Start-Sleep -Milliseconds 100
                 }
-                catch [AuthenticationException] {
+                catch {
                     Write-Host "🔐 Authentication Error during track queueing (track: $($track.name)): Your Spotify session has expired." -ForegroundColor Red
                     Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
                     $skippedCount++
                     break # Stop adding tracks if auth fails
                 }
-                catch [ApiClientException] {
+                catch {
                     Write-Host "❌ Could not add track '$($track.name)' to queue: $($_.Exception.Message)" -ForegroundColor Red
                     if ($_.Exception.StatusCode -eq 403) {
                         Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
@@ -1416,11 +1469,11 @@ function queue-album {
         }
         Write-Host "✅ Album '$albumName' added to queue. $addedCount tracks added, $skippedCount tracks skipped." -ForegroundColor Green
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not add album to queue." -ForegroundColor Red
         if ($_.Exception.StatusCode -eq 403) {
             Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow

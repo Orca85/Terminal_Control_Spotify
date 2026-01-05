@@ -122,6 +122,118 @@ class GeniusLyricsProvider : LyricsProviderBase {
     }
 }
 
+# LRCLIB.net API lyrics provider (Free, no API key required, supports synced lyrics!)
+class LrclibProvider : LyricsProviderBase {
+    [string] $BaseUrl = "https://lrclib.net/api"
+
+    LrclibProvider([hashtable]$config) : base("LRCLIB", $config) {
+    }
+
+    [hashtable] FetchLyricsInternal([string]$artist, [string]$track) {
+        try {
+            # Search for track - LRCLIB uses search endpoint
+            $artistEncoded = [System.Uri]::EscapeDataString($this.SanitizeSearchTerm($artist))
+            $trackEncoded = [System.Uri]::EscapeDataString($this.SanitizeSearchTerm($track))
+            $url = "$($this.BaseUrl)/search?track_name=$trackEncoded&artist_name=$artistEncoded"
+
+            $response = Invoke-RestMethod -Uri $url -TimeoutSec ($this.TimeoutMs / 1000) -ErrorAction Stop
+
+            if (-not $response -or $response.Count -eq 0) {
+                return @{
+                    Success = $false
+                    Error = "No lyrics found"
+                    Provider = $this.ProviderName
+                }
+            }
+
+            # Take first match
+            $result = $response[0]
+
+            # Check if instrumental
+            if ($result.instrumental) {
+                return @{
+                    Success = $false
+                    Error = "Track is instrumental (no lyrics)"
+                    Provider = $this.ProviderName
+                }
+            }
+
+            # Get plain lyrics
+            $plainLyrics = if ($result.plainLyrics) { $result.plainLyrics.Trim() } else { "" }
+            $syncedLyrics = if ($result.syncedLyrics) { $result.syncedLyrics.Trim() } else { "" }
+
+            if ([string]::IsNullOrWhiteSpace($plainLyrics) -and [string]::IsNullOrWhiteSpace($syncedLyrics)) {
+                return @{
+                    Success = $false
+                    Error = "No lyrics available for this track"
+                    Provider = $this.ProviderName
+                }
+            }
+
+            # Parse synced lyrics if available (LRC format)
+            $syncedLines = @()
+            $hasSynced = $false
+
+            if (-not [string]::IsNullOrWhiteSpace($syncedLyrics)) {
+                $syncedLines = $this.ParseLrcFormat($syncedLyrics)
+                $hasSynced = $syncedLines.Count -gt 0
+            }
+
+            return @{
+                Success = $true
+                TrackId = "$artist-$track"
+                FullText = $plainLyrics
+                SyncedLines = $syncedLines
+                Source = $this.ProviderName
+                HasSyncedLyrics = $hasSynced
+                CachedAt = [DateTime]::UtcNow
+            }
+        } catch {
+            $errorMessage = $_.Exception.Message
+
+            # Handle common errors
+            if ($_.Exception.Response.StatusCode -eq 404) {
+                $errorMessage = "Lyrics not found in database"
+            }
+
+            return @{
+                Success = $false
+                Error = $errorMessage
+                Provider = $this.ProviderName
+            }
+        }
+    }
+
+    [array] ParseLrcFormat([string]$lrcText) {
+        # Parse LRC format: [mm:ss.xx] Lyrics text
+        $lines = @()
+        $lrcLines = $lrcText -split "`n"
+
+        foreach ($line in $lrcLines) {
+            if ($line -match '^\[(\d+):(\d+)\.(\d+)\]\s*(.*)$') {
+                $minutes = [int]$matches[1]
+                $seconds = [int]$matches[2]
+                $centiseconds = [int]$matches[3]
+                $text = $matches[4].Trim()
+
+                $timestampMs = ($minutes * 60 * 1000) + ($seconds * 1000) + ($centiseconds * 10)
+
+                $lines += @{
+                    Timestamp = $timestampMs
+                    Text = $text
+                }
+            }
+        }
+
+        return $lines
+    }
+
+    [bool] IsAvailable() {
+        # Always available - no API key required
+        return $true
+    }
+}
+
 # Musixmatch API lyrics provider
 class MusixmatchLyricsProvider : LyricsProviderBase {
     [string] $ApiKey
@@ -581,22 +693,26 @@ class LyricsEngine {
     }
     
     [void] InitializeProviders() {
-        # Add Genius provider if configured (primary provider)
+        # Add LRCLIB provider first (primary provider - free, no API key, supports synced lyrics!)
+        $lrclibProvider = [LrclibProvider]::new(@{})
+        $this.Providers.Add($lrclibProvider)
+
+        # Add Genius provider if configured (fallback #1)
         if ($this.Configuration.ContainsKey('GeniusApiKey')) {
             $geniusProvider = [GeniusLyricsProvider]::new(@{
                 ApiKey = $this.Configuration.GeniusApiKey
             })
             $this.Providers.Add($geniusProvider)
         }
-        
-        # Add Musixmatch provider if configured (fallback provider)
+
+        # Add Musixmatch provider if configured (fallback #2)
         if ($this.Configuration.ContainsKey('MusixmatchApiKey')) {
             $musixmatchProvider = [MusixmatchLyricsProvider]::new(@{
                 ApiKey = $this.Configuration.MusixmatchApiKey
             })
             $this.Providers.Add($musixmatchProvider)
         }
-        
+
         # Add mock provider for testing (lowest priority)
         $mockProvider = [MockLyricsProvider]::new(@{})
         $this.Providers.Add($mockProvider)
@@ -788,9 +904,9 @@ class LyricsDisplay {
     }
     
     [string] FormatTimestamp([int]$timestampMs) {
-        $totalSeconds = [Math]::Floor($timestampMs / 1000)
-        $minutes = [Math]::Floor($totalSeconds / 60)
-        $seconds = $totalSeconds % 60
+        $totalSeconds = [int][Math]::Floor($timestampMs / 1000)
+        $minutes = [int][Math]::Floor($totalSeconds / 60)
+        $seconds = [int]($totalSeconds % 60)
         return "{0:D2}:{1:D2}" -f $minutes, $seconds
     }
     
@@ -880,9 +996,17 @@ class InteractiveLyricsViewer {
     [int] $CurrentPositionMs = 0
     [string] $InputBuffer = ""
     [bool] $SearchMode = $false
-    
+    [DateTime] $LastUpdate = [DateTime]::MinValue
+    [ScriptBlock] $GetPlaybackPosition = $null
+    [int] $ApiSyncIntervalMs = 5000  # Sync with API every 5 seconds
+    [DateTime] $LastApiSync = [DateTime]::MinValue
+
     InteractiveLyricsViewer([hashtable]$lyricsData) {
         $this.Display = [LyricsDisplay]::new($lyricsData)
+    }
+
+    [void] SetPlaybackPositionGetter([ScriptBlock]$getter) {
+        $this.GetPlaybackPosition = $getter
     }
     
     [void] Start([int]$initialPositionMs = 0) {
@@ -901,28 +1025,57 @@ class InteractiveLyricsViewer {
     }
     
     [void] MainLoop() {
+        $this.LastUpdate = [DateTime]::UtcNow
+        $this.LastApiSync = [DateTime]::UtcNow
+
         while ($this.IsRunning) {
             try {
+                # Update playback position
+                $this.UpdatePlaybackPosition()
+
                 # Clear screen and render
                 [Console]::Clear()
                 $output = $this.Display.RenderDisplay($this.CurrentPositionMs)
                 Write-Host $output
-                
+
                 if ($this.SearchMode) {
                     Write-Host "Search: $($this.InputBuffer)_" -NoNewline
                 }
-                
+
                 # Handle input
                 if ([Console]::KeyAvailable) {
                     $key = [Console]::ReadKey($true)
                     $this.HandleKeyPress($key)
                 }
-                
+
                 Start-Sleep -Milliseconds 100
             } catch {
                 # Handle any console access errors gracefully
                 Write-Warning "Display error: $($_.Exception.Message)"
                 Start-Sleep -Milliseconds 500
+            }
+        }
+    }
+
+    [void] UpdatePlaybackPosition() {
+        $now = [DateTime]::UtcNow
+        $timeSinceLastUpdate = ($now - $this.LastUpdate).TotalMilliseconds
+
+        # Update position based on elapsed time (smooth playback simulation)
+        $this.CurrentPositionMs += [int]$timeSinceLastUpdate
+        $this.LastUpdate = $now
+
+        # Sync with API periodically to correct drift
+        $timeSinceApiSync = ($now - $this.LastApiSync).TotalMilliseconds
+        if ($timeSinceApiSync -ge $this.ApiSyncIntervalMs -and $this.GetPlaybackPosition -ne $null) {
+            try {
+                $apiPosition = & $this.GetPlaybackPosition
+                if ($apiPosition -ne $null) {
+                    $this.CurrentPositionMs = $apiPosition
+                    $this.LastApiSync = $now
+                }
+            } catch {
+                # Silently ignore API errors, continue with time-based tracking
             }
         }
     }
@@ -1015,16 +1168,21 @@ function Show-Lyrics {
     param(
         [Parameter(Mandatory)]
         [hashtable]$LyricsData,
-        
-        [int]$InitialPositionMs = 0
+
+        [int]$InitialPositionMs = 0,
+
+        [ScriptBlock]$GetPlaybackPosition = $null
     )
-    
+
     if (-not $LyricsData.Success) {
         Write-Error "Cannot display lyrics: $($LyricsData.Error)"
         return
     }
-    
+
     $viewer = [InteractiveLyricsViewer]::new($LyricsData)
+    if ($GetPlaybackPosition -ne $null) {
+        $viewer.SetPlaybackPositionGetter($GetPlaybackPosition)
+    }
     $viewer.Start($InitialPositionMs)
 }
 

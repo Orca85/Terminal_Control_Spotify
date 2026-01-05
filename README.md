@@ -1,14 +1,54 @@
-# Spotify CLI for PowerShell - Live Features Edition v3.0.0
+# Spotify CLI for PowerShell - Live Features Edition v3.1.0
 
 A comprehensive command-line interface for controlling Spotify playback directly from PowerShell with revolutionary **Live Features** including real-time display, synchronized lyrics, comprehensive analytics, interactive navigation, smart playlist management, and cross-platform compatibility.
 
-**🌟 NEW: LIVE FEATURES** - Transform your terminal into a dynamic music control center with real-time displays, synchronized lyrics, and comprehensive listening analytics.
+**🎨 NEW: WINDOWS FORM DISPLAY** - Beautiful floating window with live playback info and full controls!
 
-**✅ FULLY TESTED AND VALIDATED** - This CLI has been comprehensively tested with enhanced performance and expanded functionality.
+**🎮 NEW: ENHANCED INTERACTIVE MODE** - Navigate playlists, queue, and search with arrow keys!
+
+**✅ FULLY TESTED AND VALIDATED** - Comprehensively tested with enhanced performance and expanded functionality.
 
 ---
 
 ## ✨ Key Features
+
+### 🎨 Latest Features (v3.1.0)
+
+#### Windows Form Display (`ss` command)
+![Windows Form](https://via.placeholder.com/450x260/191414/1DB954?text=Spotify+Now+Playing)
+
+A beautiful, always-on-top floating window showing current playback:
+- **🎵 Live Updates** - Real-time track info updated every second
+- **🎨 Color-Coded Display** - Green song, yellow artist, blue album, pink next track
+- **📊 Progress Bar** - Visual playback progress
+- **🎮 Full Controls** - Prev, Play/Pause, Next, Shuffle, Repeat buttons
+- **⚡ Non-Blocking** - Runs in background, terminal stays usable
+- **🎙️ Podcast Support** - Works with both music and podcasts
+
+```powershell
+# Launch the floating display
+ss
+
+# Or use full command
+ShowSpotify
+```
+
+[Learn more →](docs/WINDOWS-FORM-GUIDE.md)
+
+#### Enhanced Interactive Mode
+Navigate and control Spotify with keyboard shortcuts:
+- **⌨️ Arrow Keys** - Navigate lists (↑↓)
+- **⚡ Quick Select** - Number keys 1-9 for instant selection
+- **▶️ Enter** - Play selected item
+- **📝 Space** - Queue/remove items
+- **🎯 Visual Selection** - Clear highlighting with ► indicator
+
+Works with:
+- 📁 **Playlists** - Browse and play your playlists
+- 🔍 **Search Results** - Navigate search with arrows
+- 📋 **Queue** - Manage your playback queue
+
+[Learn more →](docs/INTERACTIVE-MODE.md)
 
 ### 🌟 Live Features (NEW in v3.0.0)
 
@@ -22,11 +62,17 @@ A comprehensive command-line interface for controlling Spotify playback directly
 
 #### 🎤 Lyrics Engine
 
-- **Synchronized Lyrics**: Real-time highlighting that follows your music
-- **Multi-Provider Support**: Genius and Musixmatch integration with automatic fallback
-- **Interactive Viewer**: Full-featured lyrics browser with search and navigation
-- **Smart Caching**: Local storage for offline access and improved performance
-- **Multiple Display Options**: Timestamps, highlighting, and scrolling controls
+- **🎨 Windows Form Display**: Beautiful floating window with live synchronized lyrics (`slw` command)
+- **🌈 Color-Coded States**: Three-color system (dark gray = sung, bright green = current, white = upcoming)
+- **🎯 Real-Time Sync**: Lyrics highlight automatically following playback position
+- **🔄 Auto-Scroll**: Current line always visible with smooth scrolling
+- **📏 Resizable Window**: Expand window for more lyrics or wider text
+- **🆓 Free Provider**: LRCLIB.net integration - no API key required!
+- **🎵 Synced Lyrics Support**: LRC format with timestamps for karaoke mode
+- **💾 Smart Caching**: Local storage for offline access and improved performance
+- **🔁 Multi-Provider Fallback**: LRCLIB → Genius → Musixmatch automatic fallback
+
+[Learn more →](docs/LYRICS-GUIDE.md)
 
 #### 📊 Statistics Engine
 
@@ -195,6 +241,13 @@ The CLI exports 98 functions and aliases, including 9 new live features commands
 | `shuffle` | `sh`    | Control shuffle mode  | `shuffle on`   |
 | `repeat`  | `rep`   | Control repeat mode   | `repeat track` |
 
+#### 🎨 UI Features (v3.1.0)
+
+| Function         | Aliases | Description                    | Example                |
+| ---------------- | ------- | ------------------------------ | ---------------------- |
+| `Show-SpotifyForm` | `ShowSpotify`, `ss` | Windows Form display with controls | `ss` |
+| Interactive Mode | -       | Arrow key navigation (auto)    | `playlists` + Enter    |
+
 #### 📱 Device Management
 
 | Function   | Aliases | Description            | Example      |
@@ -324,20 +377,56 @@ search "pink floyd"
 
 ## 🎯 Quick Start Examples
 
+### Latest Features Quick Start (v3.1.0)
+
+```powershell
+# Windows Form Display - Beautiful floating window
+ss  # Launches non-blocking display
+# Window appears with live updates, full controls, always on top!
+
+# Lyrics Window - Synchronized lyrics with live highlighting
+slw  # Show Lyrics Window
+# Beautiful window with color-coded lyrics:
+# • Dark gray = already sung
+# • Bright green (bold) = currently singing
+# • White = upcoming lines
+# Auto-scrolls and syncs with playback!
+
+# Enhanced Interactive Mode - Arrow key navigation
+playlists         # List your playlists
+# Press Enter to activate interactive mode
+# Use ↑↓ arrows to navigate
+# Press Enter to play, Space to queue, Esc to exit
+
+# Search with Interactive Navigation
+search "indie rock"
+# Automatically enters interactive mode
+# Navigate with arrows, play with Enter, queue with Space
+
+# View and Manage Queue
+queue            # Shows queue in interactive mode
+# Use ↑↓ to navigate
+# Press Space to remove items
+# Press Enter to jump to track
+```
+
 ### Live Features Quick Start
 
 ```powershell
-# Initialize live features
-Initialize-SpotifyLiveFeatures
+# Lyrics - Multiple ways to view lyrics
+slw                                    # Windows Form with live sync (recommended!)
+Get-SpotifyLyrics                      # Console display of lyrics
+Get-SpotifyLyrics -Karaoke            # Windows Form karaoke mode
+ShowLyrics                            # Alternative alias for lyrics window
+
+# Lyrics for specific song
+Get-SpotifyLyrics -Artist "Queen" -Track "Bohemian Rhapsody"
 
 # Start live display
 Start-SpotifyLiveDisplay -Mode detailed
 
 # Try sidecar mode (Windows Terminal)
 spotify --sidecar
-
-# Get lyrics for current track
-Get-SpotifyCurrentTrackLyrics
 
 # Generate weekly statistics
 Get-SpotifyListeningStatistics -Period week
@@ -484,6 +573,10 @@ The Spotify CLI Live Features Edition provides a revolutionary command-line inte
 ### 📚 Documentation
 
 - **[Complete User Guide](docs/Live-Features-Complete-User-Guide.md)** - Comprehensive guide to all features
+- **[Windows Form Display Guide](docs/WINDOWS-FORM-GUIDE.md)** - Spotify playback window (`ss`)
+- **[Lyrics Guide](docs/LYRICS-GUIDE.md)** - Synchronized lyrics window (`slw`)
+- **[Interactive Mode Guide](docs/INTERACTIVE-MODE.md)** - Keyboard navigation
+- **[Features List](docs/FEATURES.md)** - Complete feature documentation
 - **[Configuration Reference](docs/Configuration-Reference.md)** - Detailed settings documentation
 - **[Troubleshooting Guide](docs/Troubleshooting-Guide.md)** - Solutions for common issues
 - **[Migration Guide](docs/Migration-Guide.md)** - Upgrade from previous versions

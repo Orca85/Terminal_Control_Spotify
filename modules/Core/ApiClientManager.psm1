@@ -3,6 +3,13 @@
 
 using namespace System.Management.Automation
 
+# Load required assemblies
+try {
+    Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+} catch {
+    # Ignore if already loaded or unavailable
+}
+
 # Error handling classes will be loaded by the main module
 
 # Rate limiter class with enhanced exponential backoff
@@ -351,7 +358,7 @@ class CacheManager {
         }
         
         try {
-            $fileName = [System.Web.HttpUtility]::UrlEncode($cacheKey) + ".json"
+            $fileName = ($cacheKey -replace '[^\w\-]', '_') + ".json"
             $filePath = Join-Path $this.PersistentCacheDir $fileName
             
             $persistentData = @{
@@ -376,7 +383,7 @@ class CacheManager {
         }
         
         try {
-            $fileName = [System.Web.HttpUtility]::UrlEncode($cacheKey) + ".json"
+            $fileName = ($cacheKey -replace '[^\w\-]', '_') + ".json"
             $filePath = Join-Path $this.PersistentCacheDir $fileName
             
             if (-not (Test-Path $filePath)) {
@@ -429,7 +436,7 @@ class CacheManager {
             
             foreach ($file in $cacheFiles) {
                 try {
-                    $cacheKey = [System.Web.HttpUtility]::UrlDecode($file.BaseName)
+                    $cacheKey = $file.BaseName
                     if ($this.LoadFromPersistentCache($cacheKey)) {
                         $loadedCount++
                     }
@@ -451,7 +458,7 @@ class CacheManager {
         }
         
         try {
-            $fileName = [System.Web.HttpUtility]::UrlEncode($cacheKey) + ".json"
+            $fileName = ($cacheKey -replace '[^\w\-]', '_') + ".json"
             $filePath = Join-Path $this.PersistentCacheDir $fileName
             
             if (Test-Path $filePath) {
@@ -765,7 +772,7 @@ class EnhancedSpotifyApiClient {
     [int] $TimeoutMs
     [RateLimiter] $RateLimiter
     [CacheManager] $CacheManager
-    [ErrorHandler] $ErrorHandler
+    # [ErrorHandler] $ErrorHandler  # Removed to break circular dependency
     [ConnectionPoolManager] $ConnectionPool
     [bool] $CacheEnabled
     [bool] $QueueingEnabled
@@ -785,28 +792,27 @@ class EnhancedSpotifyApiClient {
     EnhancedSpotifyApiClient([hashtable]$config) {
         $this.ClientId = $config.ClientId
         $this.ClientSecret = $config.ClientSecret
-        $this.TimeoutMs = $config.ContainsKey('TimeoutMs') ? $config.TimeoutMs : 10000
-        $this.CacheEnabled = $config.ContainsKey('CacheEnabled') ? $config.CacheEnabled : $true
-        $this.QueueingEnabled = $config.ContainsKey('QueueingEnabled') ? $config.QueueingEnabled : $false
-        
+        $this.TimeoutMs = if ($config.ContainsKey('TimeoutMs')) { $config.TimeoutMs } else { 10000 }
+        $this.CacheEnabled = if ($config.ContainsKey('CacheEnabled')) { $config.CacheEnabled } else { $true }
+        $this.QueueingEnabled = if ($config.ContainsKey('QueueingEnabled')) { $config.QueueingEnabled } else { $false }
+
         # Initialize rate limiter
-        $maxRequestsPerMinute = $config.ContainsKey('MaxRequestsPerMinute') ? $config.MaxRequestsPerMinute : 60
+        $maxRequestsPerMinute = if ($config.ContainsKey('MaxRequestsPerMinute')) { $config.MaxRequestsPerMinute } else { 60 }
         $this.RateLimiter = [RateLimiter]::new($maxRequestsPerMinute)
-        
+
         # Initialize cache manager
-        $cacheDurationMs = $config.ContainsKey('CacheDurationMs') ? $config.CacheDurationMs : 60000
-        $maxCacheSize = $config.ContainsKey('MaxCacheSize') ? $config.MaxCacheSize : 1000
-        $persistentCacheDir = $config.ContainsKey('PersistentCacheDir') ? $config.PersistentCacheDir : (Join-Path $env:APPDATA "SpotifyCLI\Cache")
-        $persistentCacheEnabled = $config.ContainsKey('PersistentCacheEnabled') ? $config.PersistentCacheEnabled : $true
+        $cacheDurationMs = if ($config.ContainsKey('CacheDurationMs')) { $config.CacheDurationMs } else { 60000 }
+        $maxCacheSize = if ($config.ContainsKey('MaxCacheSize')) { $config.MaxCacheSize } else { 1000 }
+        $persistentCacheDir = if ($config.ContainsKey('PersistentCacheDir')) { $config.PersistentCacheDir } else { Join-Path $env:APPDATA "SpotifyCLI\Cache" }
+        $persistentCacheEnabled = if ($config.ContainsKey('PersistentCacheEnabled')) { $config.PersistentCacheEnabled } else { $true }
         $this.CacheManager = [CacheManager]::new($cacheDurationMs, $maxCacheSize, $persistentCacheDir, $persistentCacheEnabled)
-        
+
         # Initialize connection pool
-        $maxConnections = $config.ContainsKey('MaxConnections') ? $config.MaxConnections : 5
+        $maxConnections = if ($config.ContainsKey('MaxConnections')) { $config.MaxConnections } else { 5 }
         $this.ConnectionPool = [ConnectionPoolManager]::new($maxConnections, $this.TimeoutMs)
-        
-        # Initialize error handler
-        $this.ErrorHandler = [ErrorHandler]::new()
-        
+
+        # Note: ErrorHandler removed to break circular dependency with ErrorHandling.psm1
+
         # Initialize request queue if enabled
         if ($this.QueueingEnabled) {
             $this.RequestQueue = [System.Collections.Concurrent.ConcurrentQueue[QueuedRequest]]::new()

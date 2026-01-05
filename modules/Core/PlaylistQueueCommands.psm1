@@ -64,72 +64,125 @@ function queue {
 function Show-SpotifyQueue {
     <#
     .SYNOPSIS
-    Display the current Spotify queue with track numbers
+    Display the current Spotify queue with track numbers and statistics
     #>
     try {
         # Get current queue from Spotify API
         $queueResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/queue"
         if (-not $queueResponse) {
-            Write-Host "📭 Queue is empty" -ForegroundColor Yellow # This means API call succeeded but no queue
+            Write-Host "📭 Queue is empty" -ForegroundColor Yellow
             return
         }
-        Write-Host "🎵 Current Queue:" -ForegroundColor Cyan
+
+        Write-Host "🎵 Spotify Queue" -ForegroundColor Cyan
+        Write-Host ("=" * 60) -ForegroundColor DarkGray
         Write-Host ""
+
         # Show currently playing track
         if ($queueResponse.currently_playing) {
             $current = $queueResponse.currently_playing
             $isPodcast = $current.type -eq "episode"
+
             if ($isPodcast) {
-                Write-Host "▶️ Now Playing: 🎙️ $($current.name)" -ForegroundColor Green
-                Write-Host "   from $($current.show.name)" -ForegroundColor Gray
+                Write-Host "▶️  Now Playing" -ForegroundColor Green
+                Write-Host "    🎙️  $($current.name)" -ForegroundColor White
+                Write-Host "    📻 $($current.show.name)" -ForegroundColor Gray
+                if ($current.duration_ms) {
+                    $duration = Format-Time $current.duration_ms
+                    Write-Host "    ⏱️  $duration" -ForegroundColor DarkGray
+                }
             } else {
                 $artists = ($current.artists | ForEach-Object { $_.name }) -join ", "
-                Write-Host "▶️ Now Playing: $($current.name)" -ForegroundColor Green
-                Write-Host "   by $artists • $($current.album.name)" -ForegroundColor Gray
+                Write-Host "▶️  Now Playing" -ForegroundColor Green
+                Write-Host "    🎵 $($current.name)" -ForegroundColor White
+                Write-Host "    👤 $artists" -ForegroundColor Gray
+                Write-Host "    📀 $($current.album.name)" -ForegroundColor DarkGray
+                if ($current.duration_ms) {
+                    $duration = Format-Time $current.duration_ms
+                    Write-Host "    ⏱️  $duration" -ForegroundColor DarkGray
+                }
             }
             Write-Host ""
         }
+
         # Show queued tracks
         if ($queueResponse.queue -and $queueResponse.queue.Count -gt 0) {
-            Write-Host "📋 Up Next:" -ForegroundColor Yellow
+            Write-Host "📋 Up Next ($($queueResponse.queue.Count) tracks)" -ForegroundColor Yellow
             Write-Host ""
+
             $i = 1
+            $totalDuration = 0
+
             foreach ($track in $queueResponse.queue) {
                 $isPodcast = $track.type -eq "episode"
+
                 if ($isPodcast) {
-                    Write-Host "$i. 🎙️ $($track.name)" -ForegroundColor Magenta
-                    Write-Host "   from $($track.show.name)" -ForegroundColor Gray
+                    Write-Host "  $i. 🎙️  $($track.name)" -ForegroundColor Magenta
+                    Write-Host "      📻 $($track.show.name)" -ForegroundColor Gray
                 } else {
                     $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
-                    Write-Host "$i. $($track.name)" -ForegroundColor White
-                    Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
+                    Write-Host "  $i. 🎵 $($track.name)" -ForegroundColor White
+                    Write-Host "      👤 $artists" -ForegroundColor Gray
                 }
-                # Show duration
+
+                # Show duration and accumulate total
                 if ($track.duration_ms) {
                     $duration = Format-Time $track.duration_ms
-                    Write-Host "   ⏱ $duration" -ForegroundColor Gray
+                    Write-Host "      ⏱️  $duration" -ForegroundColor DarkGray
+                    $totalDuration += $track.duration_ms
                 }
+
                 Write-Host ""
                 $i++
+
                 # Limit display to first 20 tracks to avoid overwhelming output
                 if ($i -gt 20) {
                     $remaining = $queueResponse.queue.Count - 20
-                    Write-Host "   ... and $remaining more tracks" -ForegroundColor Gray
+                    Write-Host "  ... and $remaining more tracks" -ForegroundColor DarkGray
+                    Write-Host ""
+
+                    # Calculate remaining duration
+                    $remainingTracks = $queueResponse.queue | Select-Object -Skip 20
+                    foreach ($t in $remainingTracks) {
+                        if ($t.duration_ms) {
+                            $totalDuration += $t.duration_ms
+                        }
+                    }
                     break
                 }
             }
-            Write-Host "💡 Use 'queue remove <number>' to remove specific tracks" -ForegroundColor Cyan
-            Write-Host "💡 Use 'queue clear' to clear entire queue" -ForegroundColor Cyan
+
+            # Show queue statistics
+            Write-Host ("=" * 60) -ForegroundColor DarkGray
+            Write-Host "📊 Queue Statistics:" -ForegroundColor Cyan
+            Write-Host "   Total tracks: $($queueResponse.queue.Count)" -ForegroundColor White
+
+            if ($totalDuration -gt 0) {
+                $hours = [Math]::Floor($totalDuration / 3600000)
+                $minutes = [Math]::Floor(($totalDuration % 3600000) / 60000)
+                if ($hours -gt 0) {
+                    Write-Host "   Total duration: ${hours}h ${minutes}m" -ForegroundColor White
+                } else {
+                    Write-Host "   Total duration: ${minutes}m" -ForegroundColor White
+                }
+            }
+
+            Write-Host ""
+            Write-Host "💡 Commands:" -ForegroundColor Yellow
+            Write-Host "   queue <number>  - Add track from search to queue" -ForegroundColor Gray
+            Write-Host "   next            - Skip to next track" -ForegroundColor Gray
+
         } else {
             Write-Host "📭 Queue is empty" -ForegroundColor Yellow
+            Write-Host ""
             Write-Host "💡 Use 'search' then 'queue <number>' to add tracks" -ForegroundColor Cyan
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not retrieve queue information." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -161,11 +214,11 @@ function Clear-SpotifyQueue {
         # Show current queue size
         Write-Host "📊 Current queue has $($queueResponse.queue.Count) tracks" -ForegroundColor Gray
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not retrieve queue to clear." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -193,11 +246,11 @@ function Remove-SpotifyQueueTrack {
         Write-Host "   • Skip tracks using 'next' command" -ForegroundColor White
         Write-Host "   • Use Spotify app directly to manage queue" -ForegroundColor White
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not remove track from queue due to API issues." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -256,11 +309,11 @@ function Add-SpotifyQueueTrack {
         # Show helpful tip
         Write-Host "💡 Use 'queue' to see current queue" -ForegroundColor Gray
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not add to queue." -ForegroundColor Red
         if ($_.Exception.StatusCode -eq 403) {
             Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
@@ -273,6 +326,443 @@ function Add-SpotifyQueueTrack {
         Write-Host "❌ An unexpected error occurred while adding to queue: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
+function create-playlist {
+    <#
+    .SYNOPSIS
+    Create a new Spotify playlist
+    .PARAMETER Name
+    Name of the new playlist
+    .PARAMETER Description
+    Optional description
+    .PARAMETER Public
+    Make playlist public (default: private)
+    .EXAMPLE
+    create-playlist "My Awesome Mix"
+    Create a private playlist
+    .EXAMPLE
+    create-playlist -Name "Road Trip 2024" -Description "Best songs for driving" -Public
+    Create a public playlist with description
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Name,
+
+        [string]$Description = "",
+
+        [switch]$Public
+    )
+
+    try {
+        # Get current user ID
+        $userProfile = Invoke-SpotifyApi -Method GET -Path "/me"
+        $userId = $userProfile.id
+
+        $body = @{
+            name = $Name
+            description = $Description
+            public = $Public.IsPresent
+        }
+
+        Write-Host "🎵 Creating playlist '$Name'..." -ForegroundColor Cyan
+
+        $playlist = Invoke-SpotifyApi -Method POST -Path "/users/$userId/playlists" -Body $body
+
+        if ($playlist) {
+            Write-Host "✅ Playlist created successfully!" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "📚 $($playlist.name)" -ForegroundColor White
+            if ($Description) {
+                Write-Host "   📝 $Description" -ForegroundColor Gray
+            }
+            $visibility = if ($Public) { "Public" } else { "Private" }
+            Write-Host "   👁️  $visibility" -ForegroundColor Gray
+            Write-Host "   🔗 $($playlist.external_urls.spotify)" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "💡 Use 'add-to-playlist' to add tracks" -ForegroundColor Yellow
+        }
+
+    } catch {
+        Write-Host "❌ Failed to create playlist: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function delete-playlist {
+    <#
+    .SYNOPSIS
+    Unfollow/delete a playlist
+    .PARAMETER PlaylistId
+    Playlist number from 'playlists' command or playlist ID/URI
+    .EXAMPLE
+    delete-playlist 3
+    Delete playlist #3 from your list
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$PlaylistId
+    )
+
+    try {
+        $actualPlaylistId = $PlaylistId
+
+        # Check if it's a number (playlist index)
+        if ($PlaylistId -match '^\d+$') {
+            $playlistIndex = [int]$PlaylistId - 1
+            $sessionPlaylists = Get-SessionPlaylists
+
+            if ($sessionPlaylists -and $playlistIndex -ge 0 -and $playlistIndex -lt $sessionPlaylists.Count) {
+                $actualPlaylistId = $sessionPlaylists[$playlistIndex].id
+                $playlistName = $sessionPlaylists[$playlistIndex].name
+            } else {
+                Write-Host "❌ Invalid playlist number. Run 'playlists' first." -ForegroundColor Red
+                return
+            }
+        }
+
+        # Extract ID from URI if needed
+        if ($actualPlaylistId -like "spotify:playlist:*") {
+            $actualPlaylistId = $actualPlaylistId -replace "spotify:playlist:", ""
+        }
+
+        Write-Host "⚠️  Are you sure you want to unfollow this playlist?" -ForegroundColor Yellow
+        Write-Host "   This action cannot be undone." -ForegroundColor Gray
+        $confirm = Read-Host "Type 'yes' to confirm"
+
+        if ($confirm -eq "yes") {
+            Invoke-SpotifyApi -Method DELETE -Path "/playlists/$actualPlaylistId/followers"
+            Write-Host "✅ Playlist unfollowed successfully" -ForegroundColor Green
+        } else {
+            Write-Host "❌ Cancelled" -ForegroundColor Yellow
+        }
+
+    } catch {
+        Write-Host "❌ Failed to delete playlist: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function create-smart-playlist {
+    <#
+    .SYNOPSIS
+    Create a smart playlist based on mood or similar tracks
+    .PARAMETER Name
+    Name for the new playlist
+    .PARAMETER BasedOn
+    Base on: current track, search result number, or track URI
+    .PARAMETER Mood
+    Target mood: energetic, chill, happy, sad, focus, party
+    .PARAMETER Limit
+    Number of tracks to generate (default: 20, max: 50)
+    .EXAMPLE
+    create-smart-playlist "Workout Mix" -Mood energetic -Limit 30
+    Create an energetic playlist with 30 tracks
+    .EXAMPLE
+    create-smart-playlist "Like This" -BasedOn 1
+    Create playlist similar to search result #1
+    .EXAMPLE
+    create-smart-playlist "Similar to Current" -BasedOn current
+    Create playlist similar to currently playing track
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Name,
+
+        [string]$BasedOn = "current",
+
+        [ValidateSet("energetic", "chill", "happy", "sad", "focus", "party", "none")]
+        [string]$Mood = "none",
+
+        [int]$Limit = 20
+    )
+
+    try {
+        Write-Host "🎵 Creating smart playlist '$Name'..." -ForegroundColor Cyan
+        Write-Host ""
+
+        # Validate limit
+        $Limit = [Math]::Min(50, [Math]::Max(1, $Limit))
+
+        # Get seed tracks
+        $seedTracks = @()
+
+        if ($BasedOn -eq "current") {
+            # Use current track
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if ($currentTrack -and $currentTrack.item) {
+                $seedTracks += $currentTrack.item.id
+                Write-Host "🎯 Seed: $($currentTrack.item.name) by $(($currentTrack.item.artists | ForEach-Object { $_.name }) -join ', ')" -ForegroundColor Gray
+            } else {
+                Write-Host "❌ No track currently playing" -ForegroundColor Red
+                return
+            }
+        } elseif ($BasedOn -match '^\d+$') {
+            # Use search result
+            $trackIndex = [int]$BasedOn - 1
+            $sessionTracks = Get-SessionTracks
+
+            if ($sessionTracks -and $trackIndex -ge 0 -and $trackIndex -lt $sessionTracks.Count) {
+                $track = $sessionTracks[$trackIndex]
+                $seedTracks += $track.id
+                Write-Host "🎯 Seed: $($track.name)" -ForegroundColor Gray
+            } else {
+                Write-Host "❌ Invalid track number. Run 'search' first." -ForegroundColor Red
+                return
+            }
+        } else {
+            # Assume it's a track URI/ID
+            $trackId = $BasedOn -replace "spotify:track:", ""
+            $seedTracks += $trackId
+            Write-Host "🎯 Seed track ID: $trackId" -ForegroundColor Gray
+        }
+
+        # Build recommendation parameters based on mood
+        $recParams = @{
+            limit = $Limit
+            seed_tracks = $seedTracks -join ","
+        }
+
+        switch ($Mood) {
+            "energetic" {
+                $recParams.target_energy = 0.8
+                $recParams.target_valence = 0.7
+                $recParams.min_tempo = 120
+                Write-Host "🎸 Mood: Energetic (high energy, upbeat)" -ForegroundColor Magenta
+            }
+            "chill" {
+                $recParams.target_energy = 0.3
+                $recParams.target_valence = 0.5
+                $recParams.max_tempo = 100
+                Write-Host "🌊 Mood: Chill (relaxed, low energy)" -ForegroundColor Cyan
+            }
+            "happy" {
+                $recParams.target_valence = 0.8
+                $recParams.target_energy = 0.6
+                Write-Host "😊 Mood: Happy (positive, uplifting)" -ForegroundColor Yellow
+            }
+            "sad" {
+                $recParams.target_valence = 0.2
+                $recParams.target_energy = 0.3
+                Write-Host "😢 Mood: Sad (melancholic, low valence)" -ForegroundColor Blue
+            }
+            "focus" {
+                $recParams.target_instrumentalness = 0.7
+                $recParams.target_energy = 0.4
+                $recParams.max_speechiness = 0.3
+                Write-Host "🎯 Mood: Focus (instrumental, moderate energy)" -ForegroundColor DarkCyan
+            }
+            "party" {
+                $recParams.target_danceability = 0.8
+                $recParams.target_energy = 0.8
+                $recParams.min_tempo = 110
+                Write-Host "🎉 Mood: Party (high danceability and energy)" -ForegroundColor Green
+            }
+        }
+
+        Write-Host "🔍 Getting recommendations..." -ForegroundColor Cyan
+
+        # Get recommendations
+        $recommendations = Invoke-SpotifyApi -Method GET -Path "/recommendations" -Query $recParams
+
+        if (-not $recommendations -or -not $recommendations.tracks) {
+            Write-Host "❌ No recommendations found" -ForegroundColor Red
+            return
+        }
+
+        Write-Host "✅ Found $($recommendations.tracks.Count) recommended tracks" -ForegroundColor Green
+        Write-Host ""
+
+        # Create playlist
+        $userProfile = Invoke-SpotifyApi -Method GET -Path "/me"
+        $userId = $userProfile.id
+
+        $description = "Smart playlist"
+        if ($Mood -ne "none") {
+            $description += " with $Mood mood"
+        }
+        $description += " - Generated by Spotify CLI"
+
+        $playlistBody = @{
+            name = $Name
+            description = $description
+            public = $false
+        }
+
+        $playlist = Invoke-SpotifyApi -Method POST -Path "/users/$userId/playlists" -Body $playlistBody
+
+        # Add tracks to playlist
+        $trackUris = $recommendations.tracks | ForEach-Object { $_.uri }
+        $addTracksBody = @{ uris = $trackUris }
+        Invoke-SpotifyApi -Method POST -Path "/playlists/$($playlist.id)/tracks" -Body $addTracksBody
+
+        Write-Host "✅ Smart playlist created successfully!" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "📚 $($playlist.name)" -ForegroundColor White
+        Write-Host "   📝 $description" -ForegroundColor Gray
+        Write-Host "   🎵 $($recommendations.tracks.Count) tracks added" -ForegroundColor Gray
+        Write-Host "   🔗 $($playlist.external_urls.spotify)" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "💡 Use 'play-playlist' to start listening" -ForegroundColor Yellow
+
+    } catch {
+        Write-Host "❌ Failed to create smart playlist: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function get-recommendations {
+    <#
+    .SYNOPSIS
+    Get track recommendations based on current track or mood
+    .PARAMETER BasedOn
+    Base on: current, track number, or track ID
+    .PARAMETER Mood
+    Target mood for recommendations
+    .PARAMETER Limit
+    Number of recommendations (default: 10)
+    .EXAMPLE
+    get-recommendations
+    Get recommendations based on current track
+    .EXAMPLE
+    get-recommendations -Mood energetic -Limit 20
+    Get 20 energetic track recommendations
+    #>
+    param(
+        [string]$BasedOn = "current",
+
+        [ValidateSet("energetic", "chill", "happy", "sad", "focus", "party", "none")]
+        [string]$Mood = "none",
+
+        [int]$Limit = 10
+    )
+
+    try {
+        # Similar logic to create-smart-playlist but just displays
+        Write-Host "🔍 Getting recommendations..." -ForegroundColor Cyan
+
+        # Get seed (reuse logic from create-smart-playlist)
+        $seedTracks = @()
+
+        if ($BasedOn -eq "current") {
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if ($currentTrack -and $currentTrack.item) {
+                $seedTracks += $currentTrack.item.id
+            } else {
+                Write-Host "❌ No track currently playing" -ForegroundColor Red
+                return
+            }
+        }
+
+        $recParams = @{
+            limit = [Math]::Min(50, [Math]::Max(1, $Limit))
+            seed_tracks = $seedTracks -join ","
+        }
+
+        # Add mood parameters
+        switch ($Mood) {
+            "energetic" { $recParams.target_energy = 0.8; $recParams.target_valence = 0.7 }
+            "chill" { $recParams.target_energy = 0.3; $recParams.max_tempo = 100 }
+            "happy" { $recParams.target_valence = 0.8 }
+            "sad" { $recParams.target_valence = 0.2 }
+            "focus" { $recParams.target_instrumentalness = 0.7 }
+            "party" { $recParams.target_danceability = 0.8; $recParams.target_energy = 0.8 }
+        }
+
+        $recommendations = Invoke-SpotifyApi -Method GET -Path "/recommendations" -Query $recParams
+
+        if ($recommendations -and $recommendations.tracks) {
+            Write-Host "🎵 Recommended Tracks:" -ForegroundColor Green
+            Write-Host ""
+
+            $i = 1
+            foreach ($track in $recommendations.tracks) {
+                $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+                Write-Host "$i. $($track.name)" -ForegroundColor White
+                Write-Host "   by $artists • $($track.album.name)" -ForegroundColor Gray
+                $i++
+            }
+
+            Write-Host ""
+            Write-Host "💡 Use 'create-smart-playlist' to save these as a playlist" -ForegroundColor Yellow
+        } else {
+            Write-Host "❌ No recommendations found" -ForegroundColor Red
+        }
+
+    } catch {
+        Write-Host "❌ Failed to get recommendations: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function add-to-playlist {
+    <#
+    .SYNOPSIS
+    Add current track or search result to playlist
+    .PARAMETER PlaylistNumber
+    Playlist number from 'playlists' command
+    .PARAMETER TrackNumber
+    Optional track number from search results
+    .EXAMPLE
+    add-to-playlist 1
+    Add currently playing track to playlist #1
+    .EXAMPLE
+    add-to-playlist 2 3
+    Add search result #3 to playlist #2
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [int]$PlaylistNumber,
+
+        [int]$TrackNumber = 0
+    )
+
+    try {
+        # Get playlist
+        $sessionPlaylists = Get-SessionPlaylists
+        $playlistIndex = $PlaylistNumber - 1
+
+        if (-not $sessionPlaylists -or $playlistIndex -lt 0 -or $playlistIndex -ge $sessionPlaylists.Count) {
+            Write-Host "❌ Invalid playlist number. Run 'playlists' first." -ForegroundColor Red
+            return
+        }
+
+        $playlist = $sessionPlaylists[$playlistIndex]
+        $playlistId = $playlist.id
+
+        # Get track URI
+        $trackUri = $null
+
+        if ($TrackNumber -gt 0) {
+            # Get from search results
+            $sessionTracks = Get-SessionTracks
+            $trackIndex = $TrackNumber - 1
+
+            if ($sessionTracks -and $trackIndex -ge 0 -and $trackIndex -lt $sessionTracks.Count) {
+                $trackUri = $sessionTracks[$trackIndex].uri
+                $trackName = $sessionTracks[$trackIndex].name
+            } else {
+                Write-Host "❌ Invalid track number. Run 'search' first." -ForegroundColor Red
+                return
+            }
+        } else {
+            # Get current track
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+
+            if (-not $currentTrack -or -not $currentTrack.item) {
+                Write-Host "❌ No track playing. Use: add-to-playlist <playlist> <track>" -ForegroundColor Red
+                return
+            }
+
+            $trackUri = $currentTrack.item.uri
+            $trackName = $currentTrack.item.name
+        }
+
+        # Add track to playlist
+        $body = @{ uris = @($trackUri) }
+        Invoke-SpotifyApi -Method POST -Path "/playlists/$playlistId/tracks" -Body $body
+
+        Write-Host "✅ Added '$trackName' to '$($playlist.name)'" -ForegroundColor Green
+
+    } catch {
+        Write-Host "❌ Failed to add track: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 function playlists {
     <#
     .SYNOPSIS
@@ -350,12 +840,12 @@ function playlists {
             Write-Host "ℹ️ Interactive mode not supported in this terminal" -ForegroundColor Yellow
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
         Set-SessionPlaylists -Playlists @()
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not get playlists." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
         Set-SessionPlaylists -Playlists @()
@@ -437,11 +927,11 @@ function play-playlist {
             Write-Host "📊 $($playlist.tracks.total) tracks" -ForegroundColor Cyan
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not play playlist." -ForegroundColor Red
         if ($_.Exception.StatusCode -eq 403) {
             Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
@@ -500,13 +990,13 @@ function queue-playlist {
                     # Small delay to avoid rate limiting
                     Start-Sleep -Milliseconds 100
                 }
-                catch [AuthenticationException] {
+                catch {
                     Write-Host "🔐 Authentication Error during track queueing (track: $($track.name)): Your Spotify session has expired." -ForegroundColor Red
                     Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
                     $skippedCount++
                     break # Stop adding tracks if auth fails
                 }
-                catch [ApiClientException] {
+                catch {
                     Write-Host "❌ Could not add track '$($track.name)' to queue: $($_.Exception.Message)" -ForegroundColor Red
                     if ($_.Exception.StatusCode -eq 403) {
                         Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
@@ -526,11 +1016,11 @@ function queue-playlist {
             Write-Host "⚠️ Skipped $skippedCount unavailable tracks" -ForegroundColor Yellow
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not queue playlist." -ForegroundColor Red
         if ($_.Exception.StatusCode -eq 403) {
             Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
@@ -569,11 +1059,11 @@ function liked {
             $i++
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not get liked songs." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -584,17 +1074,58 @@ function liked {
 function recent {
     <#
     .SYNOPSIS
-    Show recently played tracks
+    Show recently played tracks or play a specific recent track
+    .PARAMETER TrackNumber
+    Track number to play immediately (1-20)
     .EXAMPLE
     recent
     Show recently played tracks
+    .EXAMPLE
+    recent 1
+    Play the most recently played track
+    .EXAMPLE
+    recent 3
+    Play the 3rd most recently played track
     #>
+    param([int]$TrackNumber = 0)
+
     try {
         $recentResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/recently-played" -Query @{ limit = 20 }
         if (-not $recentResponse -or -not $recentResponse.items) {
             Write-Host "No recent tracks found" -ForegroundColor Yellow
             return
         }
+
+        # If a track number is specified, play it directly
+        if ($TrackNumber -gt 0) {
+            if ($TrackNumber -gt $recentResponse.items.Count) {
+                Write-Host "❌ Invalid track number. Only $($recentResponse.items.Count) recent tracks available." -ForegroundColor Red
+                return
+            }
+
+            $selectedItem = $recentResponse.items[$TrackNumber - 1]
+            $uri = $null
+            $name = ""
+
+            if ($selectedItem.track) {
+                $uri = $selectedItem.track.uri
+                $name = $selectedItem.track.name
+                $artists = ($selectedItem.track.artists | ForEach-Object { $_.name }) -join ", "
+                Write-Host "▶️ Playing recent track #$TrackNumber`: $name by $artists" -ForegroundColor Green
+            } elseif ($selectedItem.episode) {
+                $uri = $selectedItem.episode.uri
+                $name = $selectedItem.episode.name
+                Write-Host "▶️ Playing recent episode #$TrackNumber`: $name" -ForegroundColor Magenta
+            }
+
+            if ($uri) {
+                $body = @{ uris = @($uri) }
+                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+            }
+            return
+        }
+
+        # Otherwise, show the list
         Write-Host "🕒 Recently Played:" -ForegroundColor Cyan
         Write-Host ""
         $i = 1
@@ -626,11 +1157,11 @@ function recent {
             $i++
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not get recently played songs." -ForegroundColor Red
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -694,11 +1225,11 @@ function save-track {
             Write-Host "❤️ Saved track '$itemName' to your library" -ForegroundColor Green
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not save item." -ForegroundColor Red
         Write-Host "💡 Make sure a track is playing or the item ID is valid." -ForegroundColor Yellow
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -763,11 +1294,11 @@ function unsave-track {
             Write-Host "💔 Removed track '$itemName' from your library" -ForegroundColor Yellow
         }
     }
-    catch [AuthenticationException] {
+    catch {
         Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
         Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
     }
-    catch [ApiClientException] {
+    catch {
         Write-Host "❌ Could not remove item from library." -ForegroundColor Red
         Write-Host "💡 Make sure a track is playing or the item ID is valid." -ForegroundColor Yellow
         Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
