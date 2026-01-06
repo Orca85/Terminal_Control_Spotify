@@ -297,15 +297,20 @@ function Show-SpotifyTrack {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not get current track." -ForegroundColor Red
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while getting the current track: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+
+        # Check error type based on message content
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not get current track." -ForegroundColor Red
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while getting the current track: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 

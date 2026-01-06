@@ -179,15 +179,18 @@ function Show-SpotifyQueue {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not retrieve queue information." -ForegroundColor Red
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while retrieving the queue: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not retrieve queue information." -ForegroundColor Red
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while retrieving the queue: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function Clear-SpotifyQueue {
@@ -215,15 +218,18 @@ function Clear-SpotifyQueue {
         Write-Host "📊 Current queue has $($queueResponse.queue.Count) tracks" -ForegroundColor Gray
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not retrieve queue to clear." -ForegroundColor Red
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while trying to clear the queue: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not retrieve queue to clear." -ForegroundColor Red
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while trying to clear the queue: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function Remove-SpotifyQueueTrack {
@@ -247,15 +253,18 @@ function Remove-SpotifyQueueTrack {
         Write-Host "   • Use Spotify app directly to manage queue" -ForegroundColor White
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not remove track from queue due to API issues." -ForegroundColor Red
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while trying to remove the track: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not remove track from queue due to API issues." -ForegroundColor Red
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while trying to remove the track: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function Add-SpotifyQueueTrack {
@@ -310,20 +319,23 @@ function Add-SpotifyQueueTrack {
         Write-Host "💡 Use 'queue' to see current queue" -ForegroundColor Gray
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not add to queue." -ForegroundColor Red
-        if ($_.Exception.StatusCode -eq 403) {
-            Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
-        } elseif ($_.Exception.StatusCode -eq 404) {
-            Write-Host "💡 Make sure Spotify is running on an active device." -ForegroundColor Yellow
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
         }
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while adding to queue: $($_.Exception.Message)" -ForegroundColor Red
+        elseif ($_.Exception.StatusCode -eq 403 -or $_.Exception.StatusCode -eq 404) {
+            Write-Host "❌ Could not add to queue." -ForegroundColor Red
+            if ($_.Exception.StatusCode -eq 403) {
+                Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
+            } elseif ($_.Exception.StatusCode -eq 404) {
+                Write-Host "💡 Make sure Spotify is running on an active device." -ForegroundColor Yellow
+            }
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while adding to queue: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function create-playlist {
@@ -841,17 +853,18 @@ function playlists {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-        Set-SessionPlaylists -Playlists @()
-    }
-    catch {
-        Write-Host "❌ Could not get playlists." -ForegroundColor Red
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-        Set-SessionPlaylists -Playlists @()
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while retrieving playlists: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not get playlists." -ForegroundColor Red
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while retrieving playlists: $errorMessage" -ForegroundColor Red
+        }
         Set-SessionPlaylists -Playlists @()
     }
 }
@@ -928,21 +941,24 @@ function play-playlist {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not play playlist." -ForegroundColor Red
-        if ($_.Exception.StatusCode -eq 403) {
-            Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
-        } elseif ($_.Exception.StatusCode -eq 404) {
-            Write-Host "💡 Make sure Spotify is running on an active device." -ForegroundColor Yellow
-            Write-Host "💡 Try running 'devices' to see available devices." -ForegroundColor Yellow
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
         }
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while playing the playlist: $($_.Exception.Message)" -ForegroundColor Red
+        elseif ($_.Exception.StatusCode -eq 403 -or $_.Exception.StatusCode -eq 404) {
+            Write-Host "❌ Could not play playlist." -ForegroundColor Red
+            if ($_.Exception.StatusCode -eq 403) {
+                Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
+            } elseif ($_.Exception.StatusCode -eq 404) {
+                Write-Host "💡 Make sure Spotify is running on an active device." -ForegroundColor Yellow
+                Write-Host "💡 Try running 'devices' to see available devices." -ForegroundColor Yellow
+            }
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while playing the playlist: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function queue-playlist {
@@ -991,21 +1007,22 @@ function queue-playlist {
                     Start-Sleep -Milliseconds 100
                 }
                 catch {
-                    Write-Host "🔐 Authentication Error during track queueing (track: $($track.name)): Your Spotify session has expired." -ForegroundColor Red
-                    Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-                    $skippedCount++
-                    break # Stop adding tracks if auth fails
-                }
-                catch {
-                    Write-Host "❌ Could not add track '$($track.name)' to queue: $($_.Exception.Message)" -ForegroundColor Red
-                    if ($_.Exception.StatusCode -eq 403) {
-                        Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
+                    $errorMessage = $_.Exception.Message
+                    if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+                        Write-Host "🔐 Authentication Error during track queueing (track: $($track.name)): Your Spotify session has expired." -ForegroundColor Red
+                        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+                        $skippedCount++
+                        break # Stop adding tracks if auth fails
                     }
-                    $skippedCount++
-                }
-                catch {
-                    Write-Host "❌ An unexpected error occurred while queuing track '$($track.name)': $($_.Exception.Message)" -ForegroundColor Red
-                    $skippedCount++
+                    elseif ($_.Exception.StatusCode -eq 403) {
+                        Write-Host "❌ Could not add track '$($track.name)' to queue: $errorMessage" -ForegroundColor Red
+                        Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
+                        $skippedCount++
+                    }
+                    else {
+                        Write-Host "❌ An unexpected error occurred while queuing track '$($track.name)': $errorMessage" -ForegroundColor Red
+                        $skippedCount++
+                    }
                 }
             } else {
                 $skippedCount++
@@ -1017,18 +1034,19 @@ function queue-playlist {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not queue playlist." -ForegroundColor Red
-        if ($_.Exception.StatusCode -eq 403) {
-            Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
         }
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while processing the playlist: $($_.Exception.Message)" -ForegroundColor Red
+        elseif ($_.Exception.StatusCode -eq 403) {
+            Write-Host "❌ Could not queue playlist." -ForegroundColor Red
+            Write-Host "💡 This feature requires Spotify Premium." -ForegroundColor Yellow
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while processing the playlist: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function liked {
@@ -1060,15 +1078,18 @@ function liked {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not get liked songs." -ForegroundColor Red
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while retrieving liked songs: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not get liked songs." -ForegroundColor Red
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while retrieving liked songs: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function recent {
@@ -1158,15 +1179,18 @@ function recent {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not get recently played songs." -ForegroundColor Red
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while retrieving recently played songs: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not get recently played songs." -ForegroundColor Red
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while retrieving recently played songs: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function save-track {
@@ -1226,16 +1250,19 @@ function save-track {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not save item." -ForegroundColor Red
-        Write-Host "💡 Make sure a track is playing or the item ID is valid." -ForegroundColor Yellow
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while saving the item: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not save item." -ForegroundColor Red
+            Write-Host "💡 Make sure a track is playing or the item ID is valid." -ForegroundColor Yellow
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while saving the item: $errorMessage" -ForegroundColor Red
+        }
     }
 }
 function unsave-track {
@@ -1295,15 +1322,18 @@ function unsave-track {
         }
     }
     catch {
-        Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
-        Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ Could not remove item from library." -ForegroundColor Red
-        Write-Host "💡 Make sure a track is playing or the item ID is valid." -ForegroundColor Yellow
-        Write-Host "💡 API Error: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    catch {
-        Write-Host "❌ An unexpected error occurred while removing the item: $($_.Exception.Message)" -ForegroundColor Red
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.psm1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "404|Not Found") {
+            Write-Host "❌ Could not remove item from library." -ForegroundColor Red
+            Write-Host "💡 Make sure a track is playing or the item ID is valid." -ForegroundColor Yellow
+            Write-Host "💡 API Error: $errorMessage" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "❌ An unexpected error occurred while removing the item: $errorMessage" -ForegroundColor Red
+        }
     }
 }

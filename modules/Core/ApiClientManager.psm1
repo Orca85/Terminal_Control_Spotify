@@ -2,6 +2,7 @@
 # Provides enhanced Spotify API client with rate limiting, caching, and error handling
 
 using namespace System.Management.Automation
+# using module .\ErrorHandling.psm1
 
 # Load required assemblies
 try {
@@ -9,8 +10,6 @@ try {
 } catch {
     # Ignore if already loaded or unavailable
 }
-
-# Error handling classes will be loaded by the main module
 
 # Rate limiter class with enhanced exponential backoff
 class RateLimiter {
@@ -857,7 +856,7 @@ class EnhancedSpotifyApiClient {
         }
         
         if ([string]::IsNullOrWhiteSpace($this.RefreshToken)) {
-            throw [AuthenticationException]::new("No refresh token available. Re-authentication required.")
+            throw "AUTHENTICATION_ERROR: No refresh token available. Re-authentication required."
         }
         
         try {
@@ -879,7 +878,7 @@ class EnhancedSpotifyApiClient {
             # Save updated tokens (would integrate with existing token storage)
             Write-Verbose "Token refreshed successfully"
         } catch {
-            throw [AuthenticationException]::new("Token refresh failed: $($_.Exception.Message)")
+            throw "AUTHENTICATION_ERROR: Token refresh failed: $($_.Exception.Message)"
         }
     }
     
@@ -1035,16 +1034,16 @@ class EnhancedSpotifyApiClient {
                 
                 # Create appropriate exception based on status code
                 switch ($statusCode) {
-                    401 { throw [AuthenticationException]::new("Authentication failed") }
-                    429 { 
+                    401 { throw "AUTHENTICATION_ERROR: Authentication failed" }
+                    429 {
                         $retryAfter = 60 # Default retry after 60 seconds
                         if ($_.Exception.Response.Headers["Retry-After"]) {
                             $retryAfter = [int]$_.Exception.Response.Headers["Retry-After"]
                         }
-                        throw [RateLimitException]::new($retryAfter)
+                        throw "RATE_LIMIT_ERROR: Rate limit exceeded. Retry after $retryAfter seconds"
                     }
-                    default { 
-                        throw [ApiClientException]::new("API request failed: $($_.Exception.Message)", $statusCode, $responseBody)
+                    default {
+                        throw "API_CLIENT_ERROR: API request failed (Status: $statusCode): $($_.Exception.Message)"
                     }
                 }
             } catch {
@@ -1059,11 +1058,11 @@ class EnhancedSpotifyApiClient {
                     continue
                 }
                 
-                throw [ApiClientException]::new("Request failed: $($_.Exception.Message)")
+                throw "API_CLIENT_ERROR: Request failed: $($_.Exception.Message)"
             }
         }
-        
-        throw [ApiClientException]::new("Maximum retry attempts exceeded")
+
+        throw "API_CLIENT_ERROR: Maximum retry attempts exceeded"
     }
     
     [object] Get([string]$path, [hashtable]$query = @{}) {
@@ -1227,11 +1226,11 @@ class ApiClientManager {
         
         # Validate required settings
         if ([string]::IsNullOrWhiteSpace($defaultConfig.ClientId)) {
-            throw [ConfigurationException]::new("Spotify Client ID not configured")
+            throw "CONFIGURATION_ERROR: Spotify Client ID not configured"
         }
-        
+
         if ([string]::IsNullOrWhiteSpace($defaultConfig.ClientSecret)) {
-            throw [ConfigurationException]::new("Spotify Client Secret not configured")
+            throw "CONFIGURATION_ERROR: Spotify Client Secret not configured"
         }
         
         return [EnhancedSpotifyApiClient]::new($defaultConfig)

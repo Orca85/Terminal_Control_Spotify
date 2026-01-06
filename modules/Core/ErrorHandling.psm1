@@ -136,6 +136,150 @@ class ConfigurationValidationException : ConfigurationException {
     }
 }
 
+# Graceful degradation manager (must be defined before ErrorHandler)
+class GracefulDegradationManager {
+    [hashtable] $CachedDataSources = @{}
+    [hashtable] $FeatureStates = @{}
+    [bool] $OfflineMode = $false
+    [DateTime] $LastSuccessfulApiCall = [DateTime]::MinValue
+    [int] $ConsecutiveFailures = 0
+    [int] $MaxConsecutiveFailures = 5
+
+    GracefulDegradationManager() {
+        $this.InitializeFeatureStates()
+    }
+
+    [void] InitializeFeatureStates() {
+        $this.FeatureStates = @{
+            "LiveDisplay" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
+            "LyricsDisplay" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
+            "Statistics" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
+            "RealTimeUpdates" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
+        }
+    }
+
+    [void] RegisterCachedDataSource([string]$sourceType, [object]$dataSource) {
+        $this.CachedDataSources[$sourceType] = $dataSource
+    }
+
+    [object] GetCachedData([string]$sourceType, [string]$key) {
+        if ($this.CachedDataSources.ContainsKey($sourceType)) {
+            $source = $this.CachedDataSources[$sourceType]
+
+            # Try to get cached data based on source type
+            switch ($sourceType) {
+                "ApiClient" {
+                    # Check if source has GetCachedData method (avoid circular dependency)
+                    if ($source -and ($source | Get-Member -Name "GetCachedData" -MemberType Method)) {
+                        return $source.GetCachedData($key)
+                    }
+                }
+                "LyricsCache" {
+                    return $source.GetCachedLyrics($key)
+                }
+                "StatisticsCache" {
+                    return $source.GetCachedStatistics($key)
+                }
+            }
+        }
+
+        return $null
+    }
+
+    [void] RecordApiSuccess() {
+        $this.LastSuccessfulApiCall = [DateTime]::UtcNow
+        $this.ConsecutiveFailures = 0
+
+        if ($this.OfflineMode) {
+            $this.OfflineMode = $false
+            Write-Host "🌐 Connection restored. Returning to online mode." -ForegroundColor Green
+        }
+    }
+
+    [void] RecordApiFailure() {
+        $this.ConsecutiveFailures++
+
+        if ($this.ConsecutiveFailures -ge $this.MaxConsecutiveFailures -and -not $this.OfflineMode) {
+            $this.OfflineMode = $true
+            Write-Host "📴 Multiple API failures detected. Switching to offline mode with cached data." -ForegroundColor Yellow
+        }
+    }
+
+    [bool] ShouldUseCachedData() {
+        return $this.OfflineMode -or
+               $this.ConsecutiveFailures -gt 2 -or
+               ([DateTime]::UtcNow - $this.LastSuccessfulApiCall).TotalMinutes -gt 10
+    }
+
+    [void] DisableFeature([string]$featureName, [string]$reason) {
+        if ($this.FeatureStates.ContainsKey($featureName)) {
+            $this.FeatureStates[$featureName].Enabled = $false
+            $this.FeatureStates[$featureName].DisabledReason = $reason
+            $this.FeatureStates[$featureName].DisabledAt = [DateTime]::UtcNow
+
+            Write-Warning "Feature '$featureName' disabled: $reason"
+        }
+    }
+
+    [void] EnableFeature([string]$featureName) {
+        if ($this.FeatureStates.ContainsKey($featureName)) {
+            $this.FeatureStates[$featureName].Enabled = $true
+            $this.FeatureStates[$featureName].LastWorking = [DateTime]::UtcNow
+
+            if ($this.FeatureStates[$featureName].ContainsKey('DisabledReason')) {
+                $this.FeatureStates[$featureName].Remove('DisabledReason')
+                $this.FeatureStates[$featureName].Remove('DisabledAt')
+            }
+
+            Write-Host "✅ Feature '$featureName' re-enabled." -ForegroundColor Green
+        }
+    }
+
+    [bool] IsFeatureEnabled([string]$featureName) {
+        if ($this.FeatureStates.ContainsKey($featureName)) {
+            return $this.FeatureStates[$featureName].Enabled
+        }
+        return $true
+    }
+
+    [hashtable] GetDegradationStatus() {
+        return @{
+            OfflineMode = $this.OfflineMode
+            ConsecutiveFailures = $this.ConsecutiveFailures
+            LastSuccessfulApiCall = $this.LastSuccessfulApiCall
+            FeatureStates = $this.FeatureStates.Clone()
+            ShouldUseCachedData = $this.ShouldUseCachedData()
+        }
+    }
+
+    [object] HandleApiFailure([System.Exception]$exception, [string]$operation, [hashtable]$fallbackOptions = @{}) {
+        $this.RecordApiFailure()
+
+        # Try to get cached data if available
+        if ($fallbackOptions.ContainsKey('CacheKey') -and $fallbackOptions.ContainsKey('CacheSource')) {
+            $cachedData = $this.GetCachedData($fallbackOptions.CacheSource, $fallbackOptions.CacheKey)
+
+            if ($cachedData -ne $null) {
+                Write-Host "📋 Using cached data for $operation" -ForegroundColor Cyan
+                return $cachedData
+            }
+        }
+
+        # Disable real-time features if in offline mode
+        if ($this.OfflineMode) {
+            $this.DisableFeature("RealTimeUpdates", "API unavailable")
+        }
+
+        # Return fallback data if provided
+        if ($fallbackOptions.ContainsKey('FallbackData')) {
+            return $fallbackOptions.FallbackData
+        }
+
+        # Re-throw the exception if no fallback is available
+        throw $exception
+    }
+}
+
 # Error handler class for centralized error management
 class ErrorHandler {
     [hashtable] $ErrorStrategies
@@ -493,150 +637,6 @@ class RetryHelper {
     }
 }
 
-# Graceful degradation manager
-class GracefulDegradationManager {
-    [hashtable] $CachedDataSources = @{}
-    [hashtable] $FeatureStates = @{}
-    [bool] $OfflineMode = $false
-    [DateTime] $LastSuccessfulApiCall = [DateTime]::MinValue
-    [int] $ConsecutiveFailures = 0
-    [int] $MaxConsecutiveFailures = 5
-    
-    GracefulDegradationManager() {
-        $this.InitializeFeatureStates()
-    }
-    
-    [void] InitializeFeatureStates() {
-        $this.FeatureStates = @{
-            "LiveDisplay" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
-            "LyricsDisplay" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
-            "Statistics" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
-            "RealTimeUpdates" = @{ Enabled = $true; LastWorking = [DateTime]::UtcNow }
-        }
-    }
-    
-    [void] RegisterCachedDataSource([string]$sourceType, [object]$dataSource) {
-        $this.CachedDataSources[$sourceType] = $dataSource
-    }
-    
-    [object] GetCachedData([string]$sourceType, [string]$key) {
-        if ($this.CachedDataSources.ContainsKey($sourceType)) {
-            $source = $this.CachedDataSources[$sourceType]
-            
-            # Try to get cached data based on source type
-            switch ($sourceType) {
-                "ApiClient" {
-                    # Check if source has GetCachedData method (avoid circular dependency)
-                    if ($source -and ($source | Get-Member -Name "GetCachedData" -MemberType Method)) {
-                        return $source.GetCachedData($key)
-                    }
-                }
-                "LyricsCache" {
-                    return $source.GetCachedLyrics($key)
-                }
-                "StatisticsCache" {
-                    return $source.GetCachedStatistics($key)
-                }
-            }
-        }
-        
-        return $null
-    }
-    
-    [void] RecordApiSuccess() {
-        $this.LastSuccessfulApiCall = [DateTime]::UtcNow
-        $this.ConsecutiveFailures = 0
-        
-        if ($this.OfflineMode) {
-            $this.OfflineMode = $false
-            Write-Host "🌐 Connection restored. Returning to online mode." -ForegroundColor Green
-        }
-    }
-    
-    [void] RecordApiFailure() {
-        $this.ConsecutiveFailures++
-        
-        if ($this.ConsecutiveFailures -ge $this.MaxConsecutiveFailures -and -not $this.OfflineMode) {
-            $this.OfflineMode = $true
-            Write-Host "📴 Multiple API failures detected. Switching to offline mode with cached data." -ForegroundColor Yellow
-        }
-    }
-    
-    [bool] ShouldUseCachedData() {
-        return $this.OfflineMode -or 
-               $this.ConsecutiveFailures -gt 2 -or 
-               ([DateTime]::UtcNow - $this.LastSuccessfulApiCall).TotalMinutes -gt 10
-    }
-    
-    [void] DisableFeature([string]$featureName, [string]$reason) {
-        if ($this.FeatureStates.ContainsKey($featureName)) {
-            $this.FeatureStates[$featureName].Enabled = $false
-            $this.FeatureStates[$featureName].DisabledReason = $reason
-            $this.FeatureStates[$featureName].DisabledAt = [DateTime]::UtcNow
-            
-            Write-Warning "Feature '$featureName' disabled: $reason"
-        }
-    }
-    
-    [void] EnableFeature([string]$featureName) {
-        if ($this.FeatureStates.ContainsKey($featureName)) {
-            $this.FeatureStates[$featureName].Enabled = $true
-            $this.FeatureStates[$featureName].LastWorking = [DateTime]::UtcNow
-            
-            if ($this.FeatureStates[$featureName].ContainsKey('DisabledReason')) {
-                $this.FeatureStates[$featureName].Remove('DisabledReason')
-                $this.FeatureStates[$featureName].Remove('DisabledAt')
-            }
-            
-            Write-Host "✅ Feature '$featureName' re-enabled." -ForegroundColor Green
-        }
-    }
-    
-    [bool] IsFeatureEnabled([string]$featureName) {
-        if ($this.FeatureStates.ContainsKey($featureName)) {
-            return $this.FeatureStates[$featureName].Enabled
-        }
-        return $true
-    }
-    
-    [hashtable] GetDegradationStatus() {
-        return @{
-            OfflineMode = $this.OfflineMode
-            ConsecutiveFailures = $this.ConsecutiveFailures
-            LastSuccessfulApiCall = $this.LastSuccessfulApiCall
-            FeatureStates = $this.FeatureStates.Clone()
-            ShouldUseCachedData = $this.ShouldUseCachedData()
-        }
-    }
-    
-    [object] HandleApiFailure([System.Exception]$exception, [string]$operation, [hashtable]$fallbackOptions = @{}) {
-        $this.RecordApiFailure()
-        
-        # Try to get cached data if available
-        if ($fallbackOptions.ContainsKey('CacheKey') -and $fallbackOptions.ContainsKey('CacheSource')) {
-            $cachedData = $this.GetCachedData($fallbackOptions.CacheSource, $fallbackOptions.CacheKey)
-            
-            if ($cachedData -ne $null) {
-                Write-Host "📋 Using cached data for $operation" -ForegroundColor Cyan
-                return $cachedData
-            }
-        }
-        
-        # Disable real-time features if in offline mode
-        if ($this.OfflineMode) {
-            $this.DisableFeature("RealTimeUpdates", "API unavailable")
-        }
-        
-        # Return fallback data if provided
-        if ($fallbackOptions.ContainsKey('FallbackData')) {
-            return $fallbackOptions.FallbackData
-        }
-        
-        # Re-throw the exception if no fallback is available
-        throw $exception
-    }
-}
-
 # Error context builder
 class ErrorContextBuilder {
     [hashtable] $Context = @{}
@@ -666,7 +666,7 @@ class ErrorContextBuilder {
     [ErrorContextBuilder] AddSystemInfo([string]$component, [string]$version) {
         $this.Context["Component"] = $component
         $this.Context["Version"] = $version
-        $this.Context["PowerShellVersion"] = $PSVersionTable.PSVersion.ToString()
+        $this.Context["PowerShellVersion"] = (Get-Variable PSVersionTable -ValueOnly).PSVersion.ToString()
         $this.Context["OperatingSystem"] = [System.Environment]::OSVersion.ToString()
         return $this
     }
