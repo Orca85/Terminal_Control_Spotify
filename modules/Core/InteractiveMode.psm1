@@ -167,7 +167,7 @@ function Play-SpotifyItem {
         if ($Item.type -eq "playlist" -or $Item.search_type -eq "playlist") {
             # Play playlist
             $playlistUri = if ($Item.uri) { $Item.uri } else { "spotify:playlist:$($Item.id)" }
-            $body = @{ context_uri = $playlistUri } | ConvertTo-Json
+            $body = @{ context_uri = $playlistUri }
 
             try {
                 Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
@@ -184,7 +184,7 @@ function Play-SpotifyItem {
 
                     $firstDevice = $devicesResponse.devices[0]
                     Write-Host "🔄 Activating device: $($firstDevice.name)..." -ForegroundColor Cyan
-                    $transferBody = @{ device_ids = @($firstDevice.id); play = $false } | ConvertTo-Json
+                    $transferBody = @{ device_ids = @($firstDevice.id); play = $false }
                     Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody | Out-Null
                     Start-Sleep -Milliseconds 500
 
@@ -208,7 +208,7 @@ function Play-SpotifyItem {
                 throw "No URI found for item"
             }
 
-            $body = @{ uris = @($uri) } | ConvertTo-Json
+            $body = @{ uris = @($uri) }
 
             # Get display name
             $name = if ($Item.name) { $Item.name } elseif ($Item.track) { $Item.track.name } else { "Unknown" }
@@ -240,7 +240,7 @@ function Play-SpotifyItem {
 
                     $firstDevice = $devicesResponse.devices[0]
                     Write-Host "🔄 Activating device: $($firstDevice.name)..." -ForegroundColor Cyan
-                    $transferBody = @{ device_ids = @($firstDevice.id); play = $false } | ConvertTo-Json
+                    $transferBody = @{ device_ids = @($firstDevice.id); play = $false }
                     Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody | Out-Null
                     Start-Sleep -Milliseconds 500
 

@@ -1,6 +1,97 @@
 # PlaybackCommands Module
 # Contains all core functions for controlling Spotify playback.
 
+# --- Notification Helper ---
+function Show-TrackNotification {
+    <#
+    .SYNOPSIS
+    Shows a Windows toast notification for track changes
+    #>
+    param(
+        [Parameter(ParameterSetName='TrackInfo')]
+        $TrackInfo,
+
+        [Parameter(ParameterSetName='Custom')]
+        [string]$Title,
+
+        [Parameter(ParameterSetName='Custom')]
+        [string]$Message,
+
+        [ValidateSet('play', 'pause', 'next', 'previous', '')]
+        [string]$Action = ''
+    )
+
+    try {
+        # Determine notification content
+        if ($TrackInfo) {
+            # Add action indicator
+            $actionIcon = switch ($Action) {
+                'play' { '▶️' }
+                'pause' { '⏸️' }
+                'next' { '⏭️' }
+                'previous' { '⏮️' }
+                default { '🎵' }
+            }
+
+            if ($TrackInfo.type -eq "episode") {
+                $notifyTitle = "$actionIcon 🎙️ $($TrackInfo.name)"
+                $notifyMessage = "📺 $($TrackInfo.show.name)"
+                $appLogo = $TrackInfo.images[0].url
+            } else {
+                $artists = ($TrackInfo.artists | ForEach-Object { $_.name }) -join ", "
+                $albumName = if ($TrackInfo.album) { $TrackInfo.album.name } else { "Unknown Album" }
+
+                $notifyTitle = "$actionIcon 🎵 $($TrackInfo.name)"
+                $notifyMessage = "💿 $albumName`n👤 $artists"
+                $appLogo = if ($TrackInfo.album -and $TrackInfo.album.images) { $TrackInfo.album.images[0].url } else { $null }
+            }
+        } else {
+            $notifyTitle = $Title
+            $notifyMessage = $Message
+            $appLogo = $null
+        }
+
+        # Try BurntToast first (best experience)
+        if (Get-Module -ListAvailable -Name BurntToast) {
+            Import-Module BurntToast -ErrorAction SilentlyContinue
+
+            $toastParams = @{
+                Text = $notifyTitle, $notifyMessage
+                Silent = $true
+            }
+
+            # Add album art if available
+            if ($appLogo) {
+                $toastParams['AppLogo'] = $appLogo
+            }
+
+            New-BurntToastNotification @toastParams
+        }
+        else {
+            # Fallback: Use Windows balloon tip via .NET
+            Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+
+            if ([System.Windows.Forms.SystemInformation]::TerminalServerSession -eq $false) {
+                $balloon = New-Object System.Windows.Forms.NotifyIcon
+                $balloon.Icon = [System.Drawing.SystemIcons]::Information
+                $balloon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+                $balloon.BalloonTipTitle = $notifyTitle
+                $balloon.BalloonTipText = $notifyMessage
+                $balloon.Visible = $true
+                $balloon.ShowBalloonTip(3000)
+
+                # Clean up after a delay
+                Start-Sleep -Milliseconds 3500
+                $balloon.Dispose()
+            }
+        }
+    }
+    catch {
+        # Silently fail - notifications are optional
+        Write-Verbose "Notification failed: $($_.Exception.Message)"
+    }
+}
+
 function play {
     param([string]$TrackReference)
 
@@ -37,12 +128,20 @@ function play {
         try {
             # Try to play on active device first
             $body = @{ uris = @($trackUri) }
-            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
             if ($trackUri.StartsWith("spotify:episode:")) {
                 Write-Host "▶️ Playing podcast episode" -ForegroundColor Magenta
             } else {
                 Write-Host "▶️ Playing track" -ForegroundColor Green
             }
+            # Show notification
+            Start-Sleep -Milliseconds 300
+            try {
+                $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+                if ($currentTrack -and $currentTrack.item) {
+                    Show-TrackNotification -TrackInfo $currentTrack.item -Action 'play'
+                }
+            } catch { }
         }
         catch {
             # If no active device, try to activate one
@@ -57,17 +156,25 @@ function play {
                 $firstDevice = $devicesResponse.devices[0]
                 Write-Host "🔄 Activating device: $($firstDevice.name)..." -ForegroundColor Cyan
                 $transferBody = @{ device_ids = @($firstDevice.id); play = $false }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody
+                Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody | Out-Null
                 Start-Sleep -Milliseconds 500
 
                 # Try again to play
                 $body = @{ uris = @($trackUri) }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
                 if ($trackUri.StartsWith("spotify:episode:")) {
                     Write-Host "▶️ Playing podcast episode" -ForegroundColor Magenta
                 } else {
                     Write-Host "▶️ Playing track" -ForegroundColor Green
                 }
+                # Show notification
+                Start-Sleep -Milliseconds 300
+                try {
+                    $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+                    if ($currentTrack -and $currentTrack.item) {
+                        Show-TrackNotification -TrackInfo $currentTrack.item -Action 'play'
+                    }
+                } catch { }
             }
             catch {
                 Write-Host "❌ Could not play track: $($_.Exception.Message)" -ForegroundColor Red
@@ -78,8 +185,16 @@ function play {
 
     # Path 1: Resume playback or play recent
     try {
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play"
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" | Out-Null
         Write-Host "▶️ Resumed playback" -ForegroundColor Green
+        # Show notification with current track
+        Start-Sleep -Milliseconds 300
+        try {
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+            if ($currentTrack -and $currentTrack.item) {
+                Show-TrackNotification -TrackInfo $currentTrack.item -Action 'play'
+            }
+        } catch { }
     }
     catch {
         # This is the expected error when nothing is active.
@@ -97,7 +212,7 @@ function play {
                 $firstDevice = $devicesResponse.devices[0]
                 Write-Host "🔄 Activating device: $($firstDevice.name)..." -ForegroundColor Cyan
                 $transferBody = @{ device_ids = @($firstDevice.id); play = $false }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody
+                Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody | Out-Null
                 Start-Sleep -Milliseconds 500
             }
 
@@ -105,7 +220,7 @@ function play {
             if ($recentTracks -and $recentTracks.items -and $recentTracks.items.Count -gt 0) {
                 $lastTrack = $recentTracks.items[0].track
                 $body = @{ uris = @($lastTrack.uri) }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
                 Write-Host "▶️ Started playing: $($lastTrack.name) by $(($lastTrack.artists | ForEach-Object { $_.name }) -join ', ')" -ForegroundColor Green
             } else {
                 Write-Host "❌ No recent tracks found to play." -ForegroundColor Red
@@ -119,8 +234,19 @@ function play {
 
 function pause {
     try {
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause"
+        # Get current track BEFORE pausing for notification
+        $currentTrack = $null
+        try {
+            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+        } catch { }
+
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause" | Out-Null
         Write-Host "⏸️ Paused playback" -ForegroundColor Yellow
+
+        # Show notification with track info
+        if ($currentTrack -and $currentTrack.item) {
+            Show-TrackNotification -TrackInfo $currentTrack.item -Action 'pause'
+        }
     }
     catch {
         $errorMessage = $_.Exception.Message
@@ -142,19 +268,25 @@ function pause {
 
 function next {
     try {
-        Invoke-SpotifyApi -Method POST -Path "/me/player/next"
+        Invoke-SpotifyApi -Method POST -Path "/me/player/next" | Out-Null
         Write-Host "⏭️ Skipped to next track" -ForegroundColor Green
-        # Wait a moment for Spotify to update, then show notification
+        # Wait a moment for Spotify to update, then show current track
         Start-Sleep -Milliseconds 500
-        # Get current track info and show notification
         try {
             $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
             if ($currentTrack -and $currentTrack.item) {
-                Show-TrackNotification -TrackInfo $currentTrack.item
+                $item = $currentTrack.item
+                if ($item.type -eq "episode") {
+                    Write-Host "🎙️ Now playing: $($item.name)" -ForegroundColor Magenta
+                } else {
+                    $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+                    Write-Host "🎵 Now playing: $($item.name) by $artists" -ForegroundColor Cyan
+                }
+                # Show toast notification
+                Show-TrackNotification -TrackInfo $item -Action 'next'
             }
         } catch {
-            # If we can't get track info, show generic notification
-            Show-TrackNotification -Title "Spotify" -Message "Skipped to next track"
+            # Silently ignore if we can't get track info
         }
     }
     catch {
@@ -177,19 +309,25 @@ function next {
 
 function previous {
     try {
-        Invoke-SpotifyApi -Method POST -Path "/me/player/previous"
+        Invoke-SpotifyApi -Method POST -Path "/me/player/previous" | Out-Null
         Write-Host "⏮️ Skipped to previous track" -ForegroundColor Green
-        # Wait a moment for Spotify to update, then show notification
+        # Wait a moment for Spotify to update, then show current track
         Start-Sleep -Milliseconds 500
-        # Get current track info and show notification
         try {
             $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
             if ($currentTrack -and $currentTrack.item) {
-                Show-TrackNotification -TrackInfo $currentTrack.item
+                $item = $currentTrack.item
+                if ($item.type -eq "episode") {
+                    Write-Host "🎙️ Now playing: $($item.name)" -ForegroundColor Magenta
+                } else {
+                    $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
+                    Write-Host "🎵 Now playing: $($item.name) by $artists" -ForegroundColor Cyan
+                }
+                # Show toast notification
+                Show-TrackNotification -TrackInfo $item -Action 'previous'
             }
         } catch {
-            # If we can't get track info, show generic notification
-            Show-TrackNotification -Title "Spotify" -Message "Skipped to previous track"
+            # Silently ignore if we can't get track info
         }
     }
     catch {
@@ -225,7 +363,7 @@ function volume {
     }
     try {
         $query = @{ volume_percent = $Level }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/volume" -Query $query
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/volume" -Query $query | Out-Null
         Write-Host "🔊 Volume set to $Level%" -ForegroundColor Green
     }
     catch {
@@ -278,7 +416,7 @@ function seek {
         if ($newPosition -gt $maxPosition) { $newPosition = $maxPosition }
 
         $query = @{ position_ms = $newPosition }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/seek" -Query $query
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/seek" -Query $query | Out-Null
 
         $direction = if ($Seconds -gt 0) { "forward" } else { "backward" }
         $absSeconds = [Math]::Abs($Seconds)
@@ -365,7 +503,7 @@ function shuffle {
             $newState = ($State -eq 'on')
         }
         $query = @{ state = $newState.ToString().ToLower() }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/shuffle" -Query $query
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/shuffle" -Query $query | Out-Null
         $stateText = if ($newState) { "enabled" } else { "disabled" }
         $icon = if ($newState) { "🔀" } else { "➡️" }
         Write-Host "$icon Shuffle $stateText" -ForegroundColor Green
@@ -402,7 +540,7 @@ function repeat {
     param([ValidateSet('track', 'context', 'off')][string]$Mode = 'off')
     try {
         $query = @{ state = $Mode }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/repeat" -Query $query
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/repeat" -Query $query | Out-Null
         $icon = switch ($Mode) {
             "track" { "🔂" }
             "context" { "🔁" }
@@ -479,7 +617,7 @@ function transfer {
         }
 
         $body = @{ device_ids = @($actualDeviceId) }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $body
+        Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $body | Out-Null
 
         Write-Host "📱 Playback successfully transferred to '$($deviceName)'" -ForegroundColor Green
     }

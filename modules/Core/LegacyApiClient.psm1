@@ -50,22 +50,22 @@ function Invoke-SpotifyApi {
 
         switch ($statusCode) {
             401 {
-                throw [AuthenticationException]::new("Spotify API authentication failed. Token may be expired or invalid.", $statusCode, $responseBody)
+                throw "Spotify API authentication failed. Token may be expired or invalid. (HTTP $statusCode)"
             }
             403 {
                 $errorDetails = ($responseBody | ConvertFrom-Json -ErrorAction SilentlyContinue)
                 $message = if ($errorDetails) { $errorDetails.error.message } else { "Permission denied. This operation may require a higher scope or Spotify Premium." }
-                throw [ApiClientException]::new($message, $statusCode, $responseBody)
+                throw "$message (HTTP $statusCode)"
             }
             404 {
-                 throw [ApiClientException]::new("The requested resource was not found.", $statusCode, $responseBody)
+                throw "The requested resource was not found. (HTTP $statusCode)"
             }
             429 {
                 $retryAfter = $_.Exception.Response.Headers['Retry-After']
-                throw [RateLimitException]::new($retryAfter)
+                throw "Rate limited by Spotify. Retry after $retryAfter seconds. (HTTP $statusCode)"
             }
             default {
-                throw [ApiClientException]::new("An unexpected Spotify API error occurred: $($_.Exception.Message)", $statusCode, $responseBody)
+                throw "An unexpected Spotify API error occurred: $($_.Exception.Message) (HTTP $statusCode)"
             }
         }
     }

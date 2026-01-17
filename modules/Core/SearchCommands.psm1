@@ -1364,7 +1364,7 @@ function play-album {
         Write-Host "🎵 Playing album #${AlbumNumber}: '$albumName' by $artists..." -ForegroundColor Cyan
         # Play the album using its context URI
         $body = @{ context_uri = $albumUri }
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
         Write-Host "▶️ Now playing: '$albumName'" -ForegroundColor Green
         Write-Host "👤 Artist: $artists" -ForegroundColor Yellow
         Write-Host "💿 $($album.total_tracks) tracks" -ForegroundColor Gray
@@ -1449,7 +1449,7 @@ function queue-album {
                 try {
                     # Add track to queue
                     $query = @{ uri = $track.uri }
-                    Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query $query
+                    Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query $query | Out-Null
                     $addedCount++
                     # Small delay to avoid rate limiting
                     Start-Sleep -Milliseconds 100

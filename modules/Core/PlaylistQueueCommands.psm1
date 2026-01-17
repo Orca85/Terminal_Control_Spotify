@@ -309,7 +309,7 @@ function Add-SpotifyQueueTrack {
     }
     try {
         $query = @{ uri = $trackUri }
-        Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query $query
+        Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query $query | Out-Null
         if ($trackUri.StartsWith("spotify:episode:")) {
             Write-Host "➕ Podcast episode added to queue" -ForegroundColor Magenta
         } else {
@@ -440,7 +440,7 @@ function delete-playlist {
         $confirm = Read-Host "Type 'yes' to confirm"
 
         if ($confirm -eq "yes") {
-            Invoke-SpotifyApi -Method DELETE -Path "/playlists/$actualPlaylistId/followers"
+            Invoke-SpotifyApi -Method DELETE -Path "/playlists/$actualPlaylistId/followers" | Out-Null
             Write-Host "✅ Playlist unfollowed successfully" -ForegroundColor Green
         } else {
             Write-Host "❌ Cancelled" -ForegroundColor Yellow
@@ -602,7 +602,7 @@ function create-smart-playlist {
         # Add tracks to playlist
         $trackUris = $recommendations.tracks | ForEach-Object { $_.uri }
         $addTracksBody = @{ uris = $trackUris }
-        Invoke-SpotifyApi -Method POST -Path "/playlists/$($playlist.id)/tracks" -Body $addTracksBody
+        Invoke-SpotifyApi -Method POST -Path "/playlists/$($playlist.id)/tracks" -Body $addTracksBody | Out-Null
 
         Write-Host "✅ Smart playlist created successfully!" -ForegroundColor Green
         Write-Host ""
@@ -766,7 +766,7 @@ function add-to-playlist {
 
         # Add track to playlist
         $body = @{ uris = @($trackUri) }
-        Invoke-SpotifyApi -Method POST -Path "/playlists/$playlistId/tracks" -Body $body
+        Invoke-SpotifyApi -Method POST -Path "/playlists/$playlistId/tracks" -Body $body | Out-Null
 
         Write-Host "✅ Added '$trackName' to '$($playlist.name)'" -ForegroundColor Green
 
@@ -928,14 +928,14 @@ function play-playlist {
                 context_uri = $playlistUri
                 offset = @{ position = $TrackNumber - 1 }
             }
-            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
             $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
             Write-Host "▶️ Playing track #${TrackNumber}: '$($track.name)' by $artists" -ForegroundColor Green
             Write-Host "📚 From playlist: '$playlistName'" -ForegroundColor Cyan
         } else {
             # Play entire playlist from beginning
             $body = @{ context_uri = $playlistUri }
-            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
             Write-Host "▶️ Playing playlist: '$playlistName'" -ForegroundColor Green
             Write-Host "📊 $($playlist.tracks.total) tracks" -ForegroundColor Cyan
         }
@@ -1001,7 +1001,7 @@ function queue-playlist {
             if ($track -and $track.uri -and $track.uri.StartsWith("spotify:track:")) {
                 try {
                     # Add track to queue
-                    Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query @{ uri = $track.uri }
+                    Invoke-SpotifyApi -Method POST -Path "/me/player/queue" -Query @{ uri = $track.uri } | Out-Null
                     $addedCount++
                     # Small delay to avoid rate limiting
                     Start-Sleep -Milliseconds 100
@@ -1141,7 +1141,7 @@ function recent {
 
             if ($uri) {
                 $body = @{ uris = @($uri) }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body
+                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
             }
             return
         }
@@ -1241,11 +1241,11 @@ function save-track {
         $query = @{ ids = $itemId }
         if ($isEpisode) {
             # Save podcast episode
-            Invoke-SpotifyApi -Method PUT -Path "/me/episodes" -Query $query
+            Invoke-SpotifyApi -Method PUT -Path "/me/episodes" -Query $query | Out-Null
             Write-Host "❤️ Saved podcast episode '$itemName' to your library" -ForegroundColor Magenta
         } else {
             # Save music track
-            Invoke-SpotifyApi -Method PUT -Path "/me/tracks" -Query $query
+            Invoke-SpotifyApi -Method PUT -Path "/me/tracks" -Query $query | Out-Null
             Write-Host "❤️ Saved track '$itemName' to your library" -ForegroundColor Green
         }
     }
@@ -1313,11 +1313,11 @@ function unsave-track {
         $query = @{ ids = $itemId }
         if ($isEpisode) {
             # Unsave podcast episode
-            Invoke-SpotifyApi -Method DELETE -Path "/me/episodes" -Query $query
+            Invoke-SpotifyApi -Method DELETE -Path "/me/episodes" -Query $query | Out-Null
             Write-Host "💔 Removed podcast episode '$itemName' from your library" -ForegroundColor Yellow
         } else {
             # Unsave music track
-            Invoke-SpotifyApi -Method DELETE -Path "/me/tracks" -Query $query
+            Invoke-SpotifyApi -Method DELETE -Path "/me/tracks" -Query $query | Out-Null
             Write-Host "💔 Removed track '$itemName' from your library" -ForegroundColor Yellow
         }
     }
