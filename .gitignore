@@ -30,3 +30,6 @@ Thumbs.db
 # Testresultat
 TestResults/
 .env
+
+# Arkiverade filer
+old_files/
