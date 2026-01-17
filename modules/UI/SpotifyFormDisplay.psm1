@@ -510,7 +510,7 @@ try {
 }
 
 # Create alias
-Set-Alias -Name ShowSpotify -Value Show-SpotifyForm
-Set-Alias -Name ss -Value Show-SpotifyForm
+Set-Alias -Name ShowSpotify -Value Show-SpotifyForm -ErrorAction SilentlyContinue
+Set-Alias -Name ss -Value Show-SpotifyForm -ErrorAction SilentlyContinue
 
 Export-ModuleMember -Function Show-SpotifyForm -Alias ShowSpotify, ss

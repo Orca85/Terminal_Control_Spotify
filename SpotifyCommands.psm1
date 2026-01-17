@@ -2117,41 +2117,41 @@ function ConvertTo-ConfigValue {
 
 # --- Create Aliases ---
 # Core playback aliases
-Set-Alias -Name pn -Value Show-SpotifyTrack -Force
-Set-Alias -Name plays-now -Value Show-SpotifyTrack -Force
-Set-Alias -Name music -Value Show-SpotifyTrack -Force
+Set-Alias -Name pn -Value Show-SpotifyTrack -Force -ErrorAction SilentlyContinue
+Set-Alias -Name plays-now -Value Show-SpotifyTrack -Force -ErrorAction SilentlyContinue
+Set-Alias -Name music -Value Show-SpotifyTrack -Force -ErrorAction SilentlyContinue
 
 # Override PowerShell built-in 'sp' (Set-ItemProperty)
 try {
     Remove-Item -Path Alias:\sp -Force -ErrorAction SilentlyContinue
-    Set-Alias -Name sp -Value Show-SpotifyTrack -Force -Scope Global
+    Set-Alias -Name sp -Value Show-SpotifyTrack -Force -Scope Global -ErrorAction SilentlyContinue
 } catch {
     Write-Verbose "Could not override 'sp' alias: $($_.Exception.Message)"
 }
 
-Set-Alias -Name vol -Value volume -Force
-Set-Alias -Name sh -Value shuffle -Force
-Set-Alias -Name rep -Value repeat -Force
-Set-Alias -Name tr -Value transfer -Force
-Set-Alias -Name q -Value queue -Force
-Set-Alias -Name pl -Value playlists -Force
+Set-Alias -Name vol -Value volume -Force -ErrorAction SilentlyContinue
+Set-Alias -Name sh -Value shuffle -Force -ErrorAction SilentlyContinue
+Set-Alias -Name rep -Value repeat -Force -ErrorAction SilentlyContinue
+Set-Alias -Name tr -Value transfer -Force -ErrorAction SilentlyContinue
+Set-Alias -Name q -Value queue -Force -ErrorAction SilentlyContinue
+Set-Alias -Name pl -Value playlists -Force -ErrorAction SilentlyContinue
 
 # Help aliases
-Set-Alias -Name spotify -Value Get-SpotifyHelp -Force
+Set-Alias -Name spotify -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
 
 # Override PowerShell built-in 'help' function
 try {
     Remove-Item -Path Alias:\help -Force -ErrorAction SilentlyContinue
-    Set-Alias -Name help -Value Get-SpotifyHelp -Force -Scope Global
+    Set-Alias -Name help -Value Get-SpotifyHelp -Force -Scope Global -ErrorAction SilentlyContinue
 } catch {
     Write-Verbose "Could not override 'help' alias: $($_.Exception.Message)"
 }
 
-Set-Alias -Name spotify-help -Value Get-SpotifyHelp -Force
+Set-Alias -Name spotify-help -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
 
 # Live features aliases
-Set-Alias -Name slw -Value Show-SpotifyLyricsForm -Force
-Set-Alias -Name ShowLyrics -Value Show-SpotifyLyricsForm -Force
+Set-Alias -Name slw -Value Show-SpotifyLyricsForm -Force -ErrorAction SilentlyContinue
+Set-Alias -Name ShowLyrics -Value Show-SpotifyLyricsForm -Force -ErrorAction SilentlyContinue
 
 # --- Export Module Members ---
 # Export ALL functions and aliases (from this module and imported submodules)
