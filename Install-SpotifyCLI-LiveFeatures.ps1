@@ -28,8 +28,43 @@ function Install-SpotifyCliLiveFeatures {
     Write-Host ""
     
     try {
+        # Remove old Spotify modules
+        Write-Host "[1/9] 🗑️ Removing old Spotify modules..." -ForegroundColor Yellow
+
+        # Get all module paths
+        $modulePaths = $env:PSModulePath -split [System.IO.Path]::PathSeparator
+        $removedModules = @()
+
+        # Search for old Spotify-related modules in all module paths
+        foreach ($modulePath in $modulePaths) {
+            if (Test-Path $modulePath) {
+                $spotifyModules = Get-ChildItem -Path $modulePath -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "*Spotify*" }
+
+                foreach ($oldModule in $spotifyModules) {
+                    try {
+                        # Attempt to remove module from session first
+                        Remove-Module -Name $oldModule.Name -Force -ErrorAction SilentlyContinue
+
+                        # Remove the module directory
+                        Remove-Item -Path $oldModule.FullName -Recurse -Force -ErrorAction Stop
+                        Write-Host "   ✅ Removed old module: $($oldModule.Name) from $($oldModule.FullName)" -ForegroundColor Green
+                        $removedModules += $oldModule.Name
+                    } catch {
+                        Write-Host "   ⚠️ Could not remove: $($oldModule.FullName) - $($_.Exception.Message)" -ForegroundColor Yellow
+                    }
+                }
+            }
+        }
+
+        if ($removedModules.Count -eq 0) {
+            Write-Host "   ✅ No old Spotify modules found" -ForegroundColor Green
+        } else {
+            Write-Host "   ✅ Removed $($removedModules.Count) old module(s): $($removedModules -join ', ')" -ForegroundColor Green
+        }
+
         # Check PowerShell version
-        Write-Host "[1/8] 🔍 Checking PowerShell compatibility..." -ForegroundColor Yellow
+        Write-Host "[2/9] 🔍 Checking PowerShell compatibility..." -ForegroundColor Yellow
         $psVersion = $PSVersionTable.PSVersion
         Write-Host "   PowerShell Version: $($psVersion.ToString())" -ForegroundColor Gray
         
@@ -46,7 +81,7 @@ function Install-SpotifyCliLiveFeatures {
         Write-Host "✅ PowerShell version compatible" -ForegroundColor Green
         
         # Check execution policy
-        Write-Host "[2/8] 🔍 Checking execution policy..." -ForegroundColor Yellow
+        Write-Host "[3/9] 🔍 Checking execution policy..." -ForegroundColor Yellow
         $executionPolicy = Get-ExecutionPolicy -Scope CurrentUser
         Write-Host "   Current execution policy: $executionPolicy" -ForegroundColor Gray
         
@@ -64,7 +99,7 @@ function Install-SpotifyCliLiveFeatures {
         }
         
         # Install required and optional modules
-        Write-Host "[3/8] 📦 Installing required and optional modules..." -ForegroundColor Yellow
+        Write-Host "[4/9] 📦 Installing required and optional modules..." -ForegroundColor Yellow
         
         # Required modules for live features
         $requiredModules = @()
@@ -87,7 +122,7 @@ function Install-SpotifyCliLiveFeatures {
         }
         
         # Setup directories
-        Write-Host "[4/8] 📁 Setting up directories..." -ForegroundColor Yellow
+        Write-Host "[5/9] 📁 Setting up directories..." -ForegroundColor Yellow
         
         # Create app data directory structure
         $appDataDir = Join-Path $env:APPDATA "SpotifyCLI"
@@ -126,7 +161,7 @@ function Install-SpotifyCliLiveFeatures {
         }
         
         # Install main Spotify CLI module
-        Write-Host "[5/8] 🔧 Installing Spotify CLI module..." -ForegroundColor Yellow
+        Write-Host "[6/9] 🔧 Installing Spotify CLI module..." -ForegroundColor Yellow
         
         # Check if source module exists
         $sourceModulePath = Join-Path $PSScriptRoot "SpotifyModule.psm1"
@@ -141,43 +176,61 @@ function Install-SpotifyCliLiveFeatures {
         
         # Install live features modules
         if (-not $SkipLiveFeatures) {
-            Write-Host "[6/8] 🌟 Installing Live Features modules..." -ForegroundColor Yellow
-            
-            $liveFeaturesModulesDir = Join-Path $spotifyModulePath "LiveFeatures"
-            New-Item -ItemType Directory -Path $liveFeaturesModulesDir -Force | Out-Null
-            
-            # Copy live features modules
+            Write-Host "[7/9] 🌟 Installing Live Features and Core modules..." -ForegroundColor Yellow
+
+            # CRITICAL FIX: Use "modules" not "LiveFeatures" to match SpotifyModule.psm1 expectations
+            $targetModulesDir = Join-Path $spotifyModulePath "modules"
+            New-Item -ItemType Directory -Path $targetModulesDir -Force | Out-Null
+
+            # Copy modules from source
             $moduleSourceDir = Join-Path $PSScriptRoot "modules"
             if (Test-Path $moduleSourceDir) {
                 # Copy main live features module
                 $mainLiveModule = Join-Path $moduleSourceDir "SpotifyLiveFeatures.psm1"
                 if (Test-Path $mainLiveModule) {
-                    Copy-Item $mainLiveModule -Destination (Join-Path $liveFeaturesModulesDir "SpotifyLiveFeatures.psm1") -Force
+                    Copy-Item $mainLiveModule -Destination (Join-Path $targetModulesDir "SpotifyLiveFeatures.psm1") -Force
                     Write-Host "   ✅ Main live features module installed" -ForegroundColor Green
                 }
-                
-                # Copy sub-modules
-                $subModules = @("Core", "LiveDisplay", "Lyrics", "Statistics")
+
+                # CRITICAL FIX: Copy contents of sub-modules, not the directories themselves
+                # This prevents creating Core\Core\, LiveDisplay\LiveDisplay\, etc.
+                $subModules = @("Core", "UI", "LiveDisplay", "Lyrics", "Statistics")
                 foreach ($subModule in $subModules) {
-                    $subModuleDir = Join-Path $moduleSourceDir $subModule
-                    if (Test-Path $subModuleDir) {
-                        $targetSubModuleDir = Join-Path $liveFeaturesModulesDir $subModule
-                        Copy-Item $subModuleDir -Destination $targetSubModuleDir -Recurse -Force
+                    $subModuleSourceDir = Join-Path $moduleSourceDir $subModule
+                    if (Test-Path $subModuleSourceDir) {
+                        $targetSubModuleDir = Join-Path $targetModulesDir $subModule
+
+                        # Create target directory
+                        New-Item -ItemType Directory -Path $targetSubModuleDir -Force | Out-Null
+
+                        # Copy all files from source to target (not the directory itself)
+                        Get-ChildItem -Path $subModuleSourceDir -Recurse -File | ForEach-Object {
+                            $relativePath = $_.FullName.Substring($subModuleSourceDir.Length + 1)
+                            $targetPath = Join-Path $targetSubModuleDir $relativePath
+                            $targetDir = Split-Path $targetPath -Parent
+
+                            if (-not (Test-Path $targetDir)) {
+                                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+                            }
+
+                            Copy-Item $_.FullName -Destination $targetPath -Force
+                        }
+
                         Write-Host "   ✅ $subModule module installed" -ForegroundColor Green
                     } else {
-                        Write-Host "   ⚠️ $subModule module not found (optional)" -ForegroundColor Yellow
+                        Write-Host "   ⚠️ $subModule module not found at $subModuleSourceDir" -ForegroundColor Yellow
                     }
                 }
             } else {
-                Write-Host "   ⚠️ Live features modules directory not found" -ForegroundColor Yellow
+                Write-Host "   ⚠️ Live features modules directory not found at $moduleSourceDir" -ForegroundColor Yellow
                 Write-Host "   💡 Live features will be available after manual module installation" -ForegroundColor Cyan
             }
         } else {
-            Write-Host "[6/8] ⏭️ Skipping Live Features installation (as requested)" -ForegroundColor Yellow
+            Write-Host "[7/9] ⏭️ Skipping Live Features installation (as requested)" -ForegroundColor Yellow
         }
         
         # Create module manifest
-        Write-Host "[7/8] 📋 Creating module manifest..." -ForegroundColor Yellow
+        Write-Host "[8/9] 📋 Creating module manifest..." -ForegroundColor Yellow
         $manifestPath = Join-Path $spotifyModulePath "SpotifyCommands.psd1"
         
         $exportedFunctions = @(
@@ -227,7 +280,7 @@ function Install-SpotifyCliLiveFeatures {
         Write-Host "   ✅ Module manifest created" -ForegroundColor Green
         
         # Configure PowerShell profile
-        Write-Host "[8/8] 📋 Configuring PowerShell profile..." -ForegroundColor Yellow
+        Write-Host "[9/9] 📋 Configuring PowerShell profile..." -ForegroundColor Yellow
         
         $profilePath = $PROFILE.CurrentUserAllHosts
         $profileDir = Split-Path $profilePath -Parent

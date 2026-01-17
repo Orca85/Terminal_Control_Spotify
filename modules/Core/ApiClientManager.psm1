@@ -740,6 +740,7 @@ class ConnectionPoolManager {
                 ConnectionTimeoutMs = $this.ConnectionTimeoutMs
             }
         }
+        return @{}  # Explicit return for all code paths (never reached)
     }
     
     [void] Dispose() {
@@ -1062,9 +1063,11 @@ class EnhancedSpotifyApiClient {
             }
         }
 
+        # This should never be reached due to throw statements in the loop
         throw "API_CLIENT_ERROR: Maximum retry attempts exceeded"
+        return $null  # Explicit return for all code paths (never reached)
     }
-    
+
     [object] Get([string]$path, [hashtable]$query = @{}) {
         return $this.MakeRequest("GET", $path, $query, $null)
     }

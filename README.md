@@ -15,9 +15,11 @@ A comprehensive command-line interface for controlling Spotify playback directly
 ### 🎨 Latest Features (v3.1.0)
 
 #### Windows Form Display (`ss` command)
+
 ![Windows Form](https://via.placeholder.com/450x260/191414/1DB954?text=Spotify+Now+Playing)
 
 A beautiful, always-on-top floating window showing current playback:
+
 - **🎵 Live Updates** - Real-time track info updated every second
 - **🎨 Color-Coded Display** - Green song, yellow artist, blue album, pink next track
 - **📊 Progress Bar** - Visual playback progress
@@ -36,7 +38,9 @@ ShowSpotify
 [Learn more →](docs/WINDOWS-FORM-GUIDE.md)
 
 #### Enhanced Interactive Mode
+
 Navigate and control Spotify with keyboard shortcuts:
+
 - **⌨️ Arrow Keys** - Navigate lists (↑↓)
 - **⚡ Quick Select** - Number keys 1-9 for instant selection
 - **▶️ Enter** - Play selected item
@@ -44,6 +48,7 @@ Navigate and control Spotify with keyboard shortcuts:
 - **🎯 Visual Selection** - Clear highlighting with ► indicator
 
 Works with:
+
 - 📁 **Playlists** - Browse and play your playlists
 - 🔍 **Search Results** - Navigate search with arrows
 - 📋 **Queue** - Manage your playback queue
@@ -497,6 +502,7 @@ transfer 1
    ```
 
 3. **Functions not recognized**
+
    ```powershell
    # Import module manually
    Import-Module .\SpotifyModule.psm1 -Force
@@ -566,7 +572,7 @@ Get-SpotifyCliTroubleshootingGuide
 
 ---
 
-## 🎵 Enjoy Your Music!
+## 🎵 Enjoy Your Music
 
 The Spotify CLI Live Features Edition provides a revolutionary command-line interface for Spotify. With 98 available functions, real-time live features, synchronized lyrics, comprehensive analytics, and cross-platform compatibility, you have unprecedented control over your music experience directly from PowerShell.
 
