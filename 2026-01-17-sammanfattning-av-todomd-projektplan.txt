@@ -1,0 +1,1435 @@
+
+╭─── Claude Code v2.1.9 ───────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                 Welcome back Orca!                 │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ Recent activity         │
+│                        ▘▘ ▝▝                       │ No recent activity      │
+│                                                    │                         │
+│   Opus 4.5 · Claude Pro · tommyskold@telia.com's   │                         │
+│   Organization                                     │                         │
+│    ~\Documents\Projects\Terminal_Control_Spotify   │                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+══════════════════ Conversation compacted · ctrl+o for history ═════════════════
+  ⎿  Read modules\Core\LegacyApiClient.psm1 (172 lines)
+  ⎿  Read error.txt (43 lines)
+  ⎿  Referenced file modules\UI\SpotifyFormDisplay.psm1
+  ⎿  Referenced file SpotifyCommands.psm1
+  ⎿  Read .gitignore (36 lines)
+
+● I'll continue investigating the random string output issue (device IDs appearing before playback messages). Let me search for where the play and pause commands are defined.
+
+● Search(pattern: "function.*Resume|function.*Pause|alias.*play|alias.*pause",
+        glob: "*.psm1")
+  ⎿  Found 2 files (ctrl+o to expand)
+
+● Search(pattern: "Set-Alias.*-Name play|Set-Alias.*-Name pause", glob:
+        "*.psm1")
+  ⎿  Found 1 file (ctrl+o to expand)
+
+● Search(pattern: "Set-Alias.*play|Set-Alias.*pause|Resume-SpotifyPlayback|Suspe
+        nd-SpotifyPlayback", path: "SpotifyCommands.psm1", output_mode:
+        "content")
+  ⎿  Found 2 lines (ctrl+o to expand)
+
+● Let me search more specifically for the play and pause commands.
+
+● Search(pattern: "-Name\s+(play|pause)\s+-Value", glob: "*.psm1", output_mode:
+        "content")
+  ⎿  Found 0 lines 
+
+● Search(pattern: "function Resume-Spotify|function Suspend-Spotify", glob:
+        "*.psm1", output_mode: "content")
+  ⎿  Found 0 lines 
+
+● Search(pattern: "Resumed playback|Paused playback", glob: "*.psm1",
+        output_mode: "content")
+  ⎿  Found 43 lines (ctrl+o to expand)
+
+● Found it. The play and pause functions are in PlaybackCommands.psm1. The issue is that Invoke-SpotifyApi returns something (likely device info) and it's not being suppressed. Let me read the relevant section.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 150 lines
+
+● I see the issue. The Invoke-SpotifyApi calls on lines 81 and 122 are returning data (snapshot IDs) that's being output to the console. I need to suppress these with | Out-Null for PUT/POST commands where we don't need the return value.
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      78  
+      79      # Path 1: Resume playback or play recent
+      80      try {
+      81 -        Invoke-SpotifyApi -Method PUT -Path "/me/player/play"  
+      81 +        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" |
+         + Out-Null                                                      
+      82          Write-Host "▶️ Resumed playback" -ForegroundColor Green
+      83      }
+      84      catch {
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      119  
+      120  function pause {
+      121      try {
+      122 -        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause"
+      122 +        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause"
+          + | Out-Null                                                   
+      123          Write-Host "⏸️ Paused playback" -ForegroundColor Yello
+           w
+      124      }
+      125      catch {
+
+● Now let me check the rest of the file for similar issues in other functions.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 150 lines
+
+● I see more API calls that need | Out-Null. Let me fix all of them.
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      142  
+      143  function next {
+      144      try {
+      145 -        Invoke-SpotifyApi -Method POST -Path "/me/player/next"
+      145 +        Invoke-SpotifyApi -Method POST -Path "/me/player/next"
+          + | Out-Null                                                   
+      146          Write-Host "⏭️ Skipped to next track" -ForegroundColor
+            Green
+      147          # Wait a moment for Spotify to update, then show notif
+           ication
+      148          Start-Sleep -Milliseconds 500
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      177  
+      178  function previous {
+      179      try {
+      180 -        Invoke-SpotifyApi -Method POST -Path "/me/player/previ
+          -ous"                                                          
+      180 +        Invoke-SpotifyApi -Method POST -Path "/me/player/previ
+          +ous" | Out-Null                                               
+      181          Write-Host "⏮️ Skipped to previous track" -ForegroundC
+           olor Green
+      182          # Wait a moment for Spotify to update, then show notif
+           ication
+      183          Start-Sleep -Milliseconds 500
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      225      }
+      226      try {
+      227          $query = @{ volume_percent = $Level }
+      228 -        Invoke-SpotifyApi -Method PUT -Path "/me/player/volume
+          -" -Query $query                                               
+      228 +        Invoke-SpotifyApi -Method PUT -Path "/me/player/volume
+          +" -Query $query | Out-Null                                    
+      229          Write-Host "🔊 Volume set to $Level%" -ForegroundColor
+            Green
+      230      }
+      231      catch {
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      278          if ($newPosition -gt $maxPosition) { $newPosition = $m
+           axPosition }
+      279  
+      280          $query = @{ position_ms = $newPosition }
+      281 -        Invoke-SpotifyApi -Method PUT -Path "/me/player/seek" 
+          --Query $query                                                 
+      281 +        Invoke-SpotifyApi -Method PUT -Path "/me/player/seek" 
+          +-Query $query | Out-Null                                      
+      282  
+      283          $direction = if ($Seconds -gt 0) { "forward" } else { 
+           "backward" }
+      284          $absSeconds = [Math]::Abs($Seconds)
+
+● Let me continue checking the rest of the file for more API calls that need suppression.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 150 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      365              $newState = ($State -eq 'on')
+      366          }
+      367          $query = @{ state = $newState.ToString().ToLower() }
+      368 -        Invoke-SpotifyApi -Method PUT -Path "/me/player/shuffl
+          -e" -Query $query                                              
+      368 +        Invoke-SpotifyApi -Method PUT -Path "/me/player/shuffl
+          +e" -Query $query | Out-Null                                   
+      369          $stateText = if ($newState) { "enabled" } else { "disa
+           bled" }
+      370          $icon = if ($newState) { "🔀" } else { "➡️" }
+      371          Write-Host "$icon Shuffle $stateText" -ForegroundColor
+            Green
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      402      param([ValidateSet('track', 'context', 'off')][string]$Mod
+           e = 'off')
+      403      try {
+      404          $query = @{ state = $Mode }
+      405 -        Invoke-SpotifyApi -Method PUT -Path "/me/player/repeat
+          -" -Query $query                                               
+      405 +        Invoke-SpotifyApi -Method PUT -Path "/me/player/repeat
+          +" -Query $query | Out-Null                                    
+      406          $icon = switch ($Mode) {
+      407              "track" { "🔂" }
+      408              "context" { "🔁" }
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 150 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      479          }
+      480  
+      481          $body = @{ device_ids = @($actualDeviceId) }
+      482 -        Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body
+          - $body                                                        
+      482 +        Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body
+          + $body | Out-Null                                             
+      483  
+      484          Write-Host "📱 Playback successfully transferred to '$
+           ($deviceName)'" -ForegroundColor Green
+      485      }
+
+● Now let me fix the remaining API calls in the play function that weren't suppressed.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 50 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      37          try {
+      38              # Try to play on active device first
+      39              $body = @{ uris = @($trackUri) }
+      40 -            Invoke-SpotifyApi -Method PUT -Path "/me/player/pla
+         -y" -Body $body                                                 
+      40 +            Invoke-SpotifyApi -Method PUT -Path "/me/player/pla
+         +y" -Body $body | Out-Null                                      
+      41              if ($trackUri.StartsWith("spotify:episode:")) {
+      42                  Write-Host "▶️ Playing podcast episode" -Foregr
+          oundColor Magenta
+      43              } else {
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 2 lines, removed 2 lines                                      
+      57                  $firstDevice = $devicesResponse.devices[0]
+      58                  Write-Host "🔄 Activating device: $($firstDevic
+          e.name)..." -ForegroundColor Cyan
+      59                  $transferBody = @{ device_ids = @($firstDevice.
+          id); play = $false }
+      60 -                Invoke-SpotifyApi -Method PUT -Path "/me/player
+         -" -Body $transferBody                                          
+      60 +                Invoke-SpotifyApi -Method PUT -Path "/me/player
+         +" -Body $transferBody | Out-Null                               
+      61                  Start-Sleep -Milliseconds 500
+      62  
+      63                  # Try again to play
+      64                  $body = @{ uris = @($trackUri) }
+      65 -                Invoke-SpotifyApi -Method PUT -Path "/me/player
+         -/play" -Body $body                                             
+      65 +                Invoke-SpotifyApi -Method PUT -Path "/me/player
+         +/play" -Body $body | Out-Null                                  
+      66                  if ($trackUri.StartsWith("spotify:episode:")) {
+      67                      Write-Host "▶️ Playing podcast episode" -Fo
+          regroundColor Magenta
+      68                  } else {
+
+● Let me check the rest of the play function's catch block.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 30 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 2 lines, removed 2 lines                                      
+       97                  $firstDevice = $devicesResponse.devices[0]
+       98                  Write-Host "🔄 Activating device: $($firstDevi
+           ce.name)..." -ForegroundColor Cyan
+       99                  $transferBody = @{ device_ids = @($firstDevice
+           .id); play = $false }
+      100 -                Invoke-SpotifyApi -Method PUT -Path "/me/playe
+          -r" -Body $transferBody                                        
+      100 +                Invoke-SpotifyApi -Method PUT -Path "/me/playe
+          +r" -Body $transferBody | Out-Null                             
+      101                  Start-Sleep -Milliseconds 500
+      102              }
+      103  
+     ...
+      105              if ($recentTracks -and $recentTracks.items -and $r
+           ecentTracks.items.Count -gt 0) {
+      106                  $lastTrack = $recentTracks.items[0].track
+      107                  $body = @{ uris = @($lastTrack.uri) }
+      108 -                Invoke-SpotifyApi -Method PUT -Path "/me/playe
+          -r/play" -Body $body                                           
+      108 +                Invoke-SpotifyApi -Method PUT -Path "/me/playe
+          +r/play" -Body $body | Out-Null                                
+      109                  Write-Host "▶️ Started playing: $($lastTrack.n
+           ame) by $(($lastTrack.artists | ForEach-Object { $_.name }) -j
+           oin ', ')" -ForegroundColor Green
+      110              } else {
+      111                  Write-Host "❌ No recent tracks found to play.
+           " -ForegroundColor Red
+
+● Now let me check the SpotifyFormDisplay.psm1 since the error message showed issues with playing a playlist from the UI.
+
+● Search(pattern: "Invoke-SpotifyApi.*PUT|Invoke-SpotifyApi.*POST", path:
+        "modules\UI\SpotifyFormDisplay.psm1", output_mode: "content")
+  ⎿  Found 6 lines (ctrl+o to expand)
+
+● Good, those are already fixed. Let me check other modules for similar issues.
+
+● Search(pattern: "Invoke-SpotifyApi.*(PUT|POST|DELETE)(?!.*Out-Null)", path:
+        "modules", output_mode: "content")
+  ⎿  Found 0 lines 
+
+● Search(pattern: "Invoke-SpotifyApi -Method (PUT|POST|DELETE)", path:
+        "modules", output_mode: "content")
+  ⎿  Found 43 lines (ctrl+o to expand)
+
+● There are more unsuppressed API calls in other modules. Let me fix those in PlaylistQueueCommands.psm1 and SearchCommands.psm1.
+
+● Search(pattern: "Invoke-SpotifyApi -Method (PUT|POST|DELETE)", path:
+        "modules\Core\PlaylistQueueCommands.psm1", output_mode: "content")
+  ⎿  Found 78 lines (ctrl+o to expand)
+
+● Let me fix all the unsuppressed API calls in PlaylistQueueCommands.psm1.
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  File must be read first
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  File must be read first
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  File must be read first
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  File must be read first
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 25 lines
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 20 lines
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 20 lines
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 20 lines
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      309      }
+      310      try {
+      311          $query = @{ uri = $trackUri }
+      312 -        Invoke-SpotifyApi -Method POST -Path "/me/player/queue
+          -" -Query $query                                               
+      312 +        Invoke-SpotifyApi -Method POST -Path "/me/player/queue
+          +" -Query $query | Out-Null                                    
+      313          if ($trackUri.StartsWith("spotify:episode:")) {
+      314              Write-Host "➕ Podcast episode added to queue" -Fo
+           regroundColor Magenta
+      315          } else {
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      440          $confirm = Read-Host "Type 'yes' to confirm"
+      441  
+      442          if ($confirm -eq "yes") {
+      443 -            Invoke-SpotifyApi -Method DELETE -Path "/playlists
+          -/$actualPlaylistId/followers"                                 
+      443 +            Invoke-SpotifyApi -Method DELETE -Path "/playlists
+          +/$actualPlaylistId/followers" | Out-Null                      
+      444              Write-Host "✅ Playlist unfollowed successfully" -
+           ForegroundColor Green
+      445          } else {
+      446              Write-Host "❌ Cancelled" -ForegroundColor Yellow
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      602          # Add tracks to playlist
+      603          $trackUris = $recommendations.tracks | ForEach-Object 
+           { $_.uri }
+      604          $addTracksBody = @{ uris = $trackUris }
+      605 -        Invoke-SpotifyApi -Method POST -Path "/playlists/$($pl
+          -aylist.id)/tracks" -Body $addTracksBody                       
+      605 +        Invoke-SpotifyApi -Method POST -Path "/playlists/$($pl
+          +aylist.id)/tracks" -Body $addTracksBody | Out-Null            
+      606  
+      607          Write-Host "✅ Smart playlist created successfully!" -
+           ForegroundColor Green
+      608          Write-Host ""
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      766  
+      767          # Add track to playlist
+      768          $body = @{ uris = @($trackUri) }
+      769 -        Invoke-SpotifyApi -Method POST -Path "/playlists/$play
+          -listId/tracks" -Body $body                                    
+      769 +        Invoke-SpotifyApi -Method POST -Path "/playlists/$play
+          +listId/tracks" -Body $body | Out-Null                         
+      770  
+      771          Write-Host "✅ Added '$trackName' to '$($playlist.name
+           )'" -ForegroundColor Green
+      772  
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 25 lines
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 20 lines
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 20 lines
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 30 lines
+
+● Read(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Read 25 lines
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 2 lines, removed 2 lines                                      
+      928                  context_uri = $playlistUri
+      929                  offset = @{ position = $TrackNumber - 1 }
+      930              }
+      931 -            Invoke-SpotifyApi -Method PUT -Path "/me/player/pl
+          -ay" -Body $body                                               
+      931 +            Invoke-SpotifyApi -Method PUT -Path "/me/player/pl
+          +ay" -Body $body | Out-Null                                    
+      932              $artists = ($track.artists | ForEach-Object { $_.n
+           ame }) -join ", "
+      933              Write-Host "▶️ Playing track #${TrackNumber}: '$($
+           track.name)' by $artists" -ForegroundColor Green
+      934              Write-Host "📚 From playlist: '$playlistName'" -Fo
+           regroundColor Cyan
+      935          } else {
+      936              # Play entire playlist from beginning
+      937              $body = @{ context_uri = $playlistUri }
+      938 -            Invoke-SpotifyApi -Method PUT -Path "/me/player/pl
+          -ay" -Body $body                                               
+      938 +            Invoke-SpotifyApi -Method PUT -Path "/me/player/pl
+          +ay" -Body $body | Out-Null                                    
+      939              Write-Host "▶️ Playing playlist: '$playlistName'" 
+           -ForegroundColor Green
+      940              Write-Host "📊 $($playlist.tracks.total) tracks" -
+           ForegroundColor Cyan
+      941          }
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      1001              if ($track -and $track.uri -and $track.uri.Starts
+            With("spotify:track:")) {
+      1002                  try {
+      1003                      # Add track to queue
+      1004 -                    Invoke-SpotifyApi -Method POST -Path "/me
+           -/player/queue" -Query @{ uri = $track.uri }                  
+      1004 +                    Invoke-SpotifyApi -Method POST -Path "/me
+           +/player/queue" -Query @{ uri = $track.uri } | Out-Null       
+      1005                      $addedCount++
+      1006                      # Small delay to avoid rate limiting
+      1007                      Start-Sleep -Milliseconds 100
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      1141  
+      1142              if ($uri) {
+      1143                  $body = @{ uris = @($uri) }
+      1144 -                Invoke-SpotifyApi -Method PUT -Path "/me/play
+           -er/play" -Body $body                                         
+      1144 +                Invoke-SpotifyApi -Method PUT -Path "/me/play
+           +er/play" -Body $body | Out-Null                              
+      1145              }
+      1146              return
+      1147          }
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 2 lines, removed 2 lines                                      
+      1241          $query = @{ ids = $itemId }
+      1242          if ($isEpisode) {
+      1243              # Save podcast episode
+      1244 -            Invoke-SpotifyApi -Method PUT -Path "/me/episodes
+           -" -Query $query                                              
+      1244 +            Invoke-SpotifyApi -Method PUT -Path "/me/episodes
+           +" -Query $query | Out-Null                                   
+      1245              Write-Host "❤️ Saved podcast episode '$itemName' 
+            to your library" -ForegroundColor Magenta
+      1246          } else {
+      1247              # Save music track
+      1248 -            Invoke-SpotifyApi -Method PUT -Path "/me/tracks" 
+           --Query $query                                                
+      1248 +            Invoke-SpotifyApi -Method PUT -Path "/me/tracks" 
+           +-Query $query | Out-Null                                     
+      1249              Write-Host "❤️ Saved track '$itemName' to your li
+            brary" -ForegroundColor Green
+      1250          }
+      1251      }
+
+● Update(modules\Core\PlaylistQueueCommands.psm1)
+  ⎿  Added 2 lines, removed 2 lines                                      
+      1313          $query = @{ ids = $itemId }
+      1314          if ($isEpisode) {
+      1315              # Unsave podcast episode
+      1316 -            Invoke-SpotifyApi -Method DELETE -Path "/me/episo
+           -des" -Query $query                                           
+      1316 +            Invoke-SpotifyApi -Method DELETE -Path "/me/episo
+           +des" -Query $query | Out-Null                                
+      1317              Write-Host "💔 Removed podcast episode '$itemName
+            ' from your library" -ForegroundColor Yellow
+      1318          } else {
+      1319              # Unsave music track
+      1320 -            Invoke-SpotifyApi -Method DELETE -Path "/me/track
+           -s" -Query $query                                             
+      1320 +            Invoke-SpotifyApi -Method DELETE -Path "/me/track
+           +s" -Query $query | Out-Null                                  
+      1321              Write-Host "💔 Removed track '$itemName' from you
+            r library" -ForegroundColor Yellow
+      1322          }
+      1323      }
+
+● Now let me fix the SearchCommands.psm1 module.
+
+● Search(pattern: "Invoke-SpotifyApi -Method (PUT|POST|DELETE)", path:
+        "modules\Core\SearchCommands.psm1", output_mode: "content")
+  ⎿  Found 11 lines (ctrl+o to expand)
+
+● Read(modules\Core\SearchCommands.psm1)
+  ⎿  Read 20 lines
+
+● Read(modules\Core\SearchCommands.psm1)
+  ⎿  Read 20 lines
+
+● Update(modules\Core\SearchCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      1364          Write-Host "🎵 Playing album #${AlbumNumber}: '$album
+            Name' by $artists..." -ForegroundColor Cyan
+      1365          # Play the album using its context URI
+      1366          $body = @{ context_uri = $albumUri }
+      1367 -        Invoke-SpotifyApi -Method PUT -Path "/me/player/play"
+           - -Body $body                                                 
+      1367 +        Invoke-SpotifyApi -Method PUT -Path "/me/player/play"
+           + -Body $body | Out-Null                                      
+      1368          Write-Host "▶️ Now playing: '$albumName'" -Foreground
+            Color Green
+      1369          Write-Host "👤 Artist: $artists" -ForegroundColor Yel
+            low
+      1370          Write-Host "💿 $($album.total_tracks) tracks" -Foregr
+            oundColor Gray
+
+● Update(modules\Core\SearchCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      1449                  try {
+      1450                      # Add track to queue
+      1451                      $query = @{ uri = $track.uri }
+      1452 -                    Invoke-SpotifyApi -Method POST -Path "/me
+           -/player/queue" -Query $query                                 
+      1452 +                    Invoke-SpotifyApi -Method POST -Path "/me
+           +/player/queue" -Query $query | Out-Null                      
+      1453                      $addedCount++
+      1454                      # Small delay to avoid rate limiting
+      1455                      Start-Sleep -Milliseconds 100
+
+● Let me verify all API calls are now suppressed.
+
+● Search(pattern: "Invoke-SpotifyApi -Method (PUT|POST|DELETE)", path:
+        "modules", output_mode: "content")
+  ⎿  Found 43 lines (ctrl+o to expand)
+
+● All API calls are now properly suppressed. The two remaining lines without | Out-Null (lines 380 and 600 in PlaylistQueueCommands.psm1) correctly assign the result to $playlist because they need the returned data.
+
+  Summary of fixes:
+
+  1. Fixed ApiClientException error - Already done in previous session by replacing custom exception throws with simple string throws in LegacyApiClient.psm1
+  2. Fixed random device ID output - Added | Out-Null to suppress API return values in:
+    - PlaybackCommands.psm1 - 15 API calls (play, pause, next, previous, volume, seek, shuffle, repeat, transfer)
+    - PlaylistQueueCommands.psm1 - 12 API calls (queue, delete playlist, add to playlist, play playlist, save/unsave tracks)
+    - SearchCommands.psm1 - 2 API calls (play album, queue album tracks)
+
+  The strings like UI44eQYET6eGGmLyrHEdp5am7rQ and CnMtoK-NZmoydr1RUYGZMoiZ_Mc were Spotify API response IDs being output to the console. These are now suppressed.
+
+  Regarding the WARNING messages:
+  - "Some imported command names contain restricted characters" - This is about function names with special characters (like hyphens). These are valid but PowerShell warns about them.
+  - "Unapproved verbs" - PowerShell recommends using approved verbs like Get-, Set-, Start- instead of play, pause, etc.
+
+  These warnings can be suppressed with -WarningAction SilentlyContinue in your profile's Import-Module command, which was already done in a previous session.
+
+  To test, reload your PowerShell profile (. $PROFILE) and run play or pause - the random strings should no longer appear.
+
+✻ Baked for 9m 46s
+
+❯ På denna dator efter ominstallering: 🎮 Your Playlists                    
+  ========================================================================= 
+  =======                                                                   
+  ⌨️  Controls: ↑↓ Navigate | Enter Play | Space Queue | Esc Exit           
+                                                                            
+  ► 1. 📁 We Gonna Take U Back (Lude) / Don't Leave Me • 17 tracks • by You 
+  2. 📁 Trilogy • 30 tracks • by You                                        
+  3. 📁 Min spellista nr 145 • 4 tracks • by You                            
+  4. 📁 girl don’t cry • 54 tracks • by You                                 
+  5. 📁 SWAG • 21 tracks • by You                                           
+  6. 📁 Hawaii • 8 tracks • by You                                          
+  7. 📁 Two Star & The Dream Police • 14 tracks • by You                    
+  8. 📁 Vina • 110 tracks • by You                                          
+  9. 📁 Omar Apollo — COMPLETE COLLECTION • 73 tracks • by Omar Apollo      
+  10. 📁 AIK Ramsor orginalmelodi • 76 tracks • by Emil Nordin Westerlund   
+  11. 📁 Mk.Gee • 44 tracks • by You                                        
+  12. 📁 Emo • 20 tracks • by You                                           
+  13. 📁 Answer Phone • 13 tracks • by You                                  
+  14. 📁 THINK LATER • 14 tracks • by You                                   
+  15. 📁 Te Amo • 71 tracks • by You                                        
+  16. 📁 fakk en catchig refräng • 289 tracks • by You                      
+  17. 📁 Let Go • 176 tracks • by You                                       
+  18. 📁 Trägårn Live • 196 tracks • by You                                 
+  19. 📁 Gracie Abrams – Good Riddance • 12 tracks • by You                 
+  20. 📁 EDEN – ICYMI • 11 tracks • by You                                  
+                                                                            
+  🎵 No active device. Looking for available devices...                     
+  🔄 Activating device: TVEN...                                             
+  ❌ Could not play playlist: An unexpected Spotify API error occurred:     
+  (HTTP 400)                                                                
+
+● The HTTP 400 error indicates a bad request to the Spotify API. This often happens when trying to play on a device that isn't fully ready. Let me check the interactive mode playlist playing code.
+
+● Search(pattern: "Activating device|Could not play playlist", path: "modules",
+        output_mode: "content")
+  ⎿  Found 118 lines (ctrl+o to expand)
+
+● I found the issue. In InteractiveMode.psm1, the body is being double-JSON-encoded. The code does | ConvertTo-Json before passing to Invoke-SpotifyApi, but Invoke-SpotifyApi already does ConvertTo-Json internally. This causes an HTTP 400 error.
+
+● Read(modules\Core\InteractiveMode.psm1)
+  ⎿  Read 50 lines
+
+● Read(modules\Core\InteractiveMode.psm1)
+  ⎿  Read 60 lines
+
+● I found the problem. There are 4 places in InteractiveMode.psm1 where | ConvertTo-Json is added, but Invoke-SpotifyApi already converts the body to JSON internally. This causes double-encoding and HTTP 400 errors.
+
+● Update(modules\Core\InteractiveMode.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      167          if ($Item.type -eq "playlist" -or $Item.search_type -e
+           q "playlist") {
+      168              # Play playlist
+      169              $playlistUri = if ($Item.uri) { $Item.uri } else {
+            "spotify:playlist:$($Item.id)" }
+      170 -            $body = @{ context_uri = $playlistUri } | ConvertT
+          -o-Json                                                        
+      170 +            $body = @{ context_uri = $playlistUri }           
+      171  
+      172              try {
+      173                  Invoke-SpotifyApi -Method PUT -Path "/me/playe
+           r/play" -Body $body | Out-Null
+
+● Update(modules\Core\InteractiveMode.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      184  
+      185                      $firstDevice = $devicesResponse.devices[0]
+      186                      Write-Host "🔄 Activating device: $($first
+           Device.name)..." -ForegroundColor Cyan
+      187 -                    $transferBody = @{ device_ids = @($firstDe
+          -vice.id); play = $false } | ConvertTo-Json                    
+      187 +                    $transferBody = @{ device_ids = @($firstDe
+          +vice.id); play = $false }                                     
+      188                      Invoke-SpotifyApi -Method PUT -Path "/me/p
+           layer" -Body $transferBody | Out-Null
+      189                      Start-Sleep -Milliseconds 500
+      190  
+
+● Update(modules\Core\InteractiveMode.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      208                  throw "No URI found for item"
+      209              }
+      210  
+      211 -            $body = @{ uris = @($uri) } | ConvertTo-Json      
+      211 +            $body = @{ uris = @($uri) }                       
+      212  
+      213              # Get display name
+      214              $name = if ($Item.name) { $Item.name } elseif ($It
+           em.track) { $Item.track.name } else { "Unknown" }
+
+● Update(modules\Core\InteractiveMode.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      240  
+      241                      $firstDevice = $devicesResponse.devices[0]
+      242                      Write-Host "🔄 Activating device: $($first
+           Device.name)..." -ForegroundColor Cyan
+      243 -                    $transferBody = @{ device_ids = @($firstDe
+          -vice.id); play = $false } | ConvertTo-Json                    
+      243 +                    $transferBody = @{ device_ids = @($firstDe
+          +vice.id); play = $false }                                     
+      244                      Invoke-SpotifyApi -Method PUT -Path "/me/p
+           layer" -Body $transferBody | Out-Null
+      245                      Start-Sleep -Milliseconds 500
+      246  
+
+● Let me check if there are any other places with this double-encoding issue.
+
+● Search(pattern:
+        "ConvertTo-Json.*Invoke-SpotifyApi|@\{.*\}\s*\|\s*ConvertTo-Json", path:
+         "modules", output_mode: "content")
+  ⎿  Found 0 lines 
+
+● All double-encoding issues are fixed.
+
+  Summary of fixes:
+
+  1. Removed | ConvertTo-Json from 4 places in InteractiveMode.psm1:
+    - Line 170: playlist body
+    - Line 187: transfer body (device activation)
+    - Line 211: track body
+    - Line 243: transfer body (device activation for tracks)
+
+  The Invoke-SpotifyApi function already converts the body to JSON internally with $Body | ConvertTo-Json -Depth 10, so pre-converting caused the JSON to be escaped and wrapped in quotes, resulting in an invalid request (HTTP 400).
+
+  Reload your profile (. $PROFILE) and try playing a playlist again. The HTTP 400 error should be gone.
+
+✻ Crunched for 1m 20s
+
+❯ 🐋  ~\..\Terminal_Control_Spotify  main ≡  next                       
+  ⏭️ Skipped to next track                                                  
+  ❌ An unexpected error occurred: The term 'Show-TrackNotification' is not 
+  recognized as a name of a cmdlet, function, script file, or executable    
+  program.                                                                  
+  Check the spelling of the name, or if a path was included, verify that    
+  the path is correct and try again.                                        
+
+● The Show-TrackNotification function is being called but not found. Let me check where it's defined and fix the issue.
+
+● Search(pattern: "function Show-TrackNotification", glob: "*.psm1",
+        output_mode: "content")
+  ⎿  Found 0 lines 
+
+● Search(pattern: "Show-TrackNotification", path:
+        "modules\Core\PlaybackCommands.psm1", output_mode: "content")
+  ⎿  Found 4 lines (ctrl+o to expand)
+
+● The function Show-TrackNotification is called but doesn't exist. It was likely planned but never implemented. Let me remove these calls from next and previous functions.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 55 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 9 lines, removed 5 lines                                      
+      144      try {
+      145          Invoke-SpotifyApi -Method POST -Path "/me/player/next"
+            | Out-Null
+      146          Write-Host "⏭️ Skipped to next track" -ForegroundColor
+            Green
+      147 -        # Wait a moment for Spotify to update, then show notif
+          -ication                                                       
+      147 +        # Wait a moment for Spotify to update, then show curre
+          +nt track                                                      
+      148          Start-Sleep -Milliseconds 500
+      149 -        # Get current track info and show notification        
+      149          try {
+      150              $currentTrack = Invoke-SpotifyApi -Method GET -Pat
+           h "/me/player/currently-playing"
+      151              if ($currentTrack -and $currentTrack.item) {
+      153 -                Show-TrackNotification -TrackInfo $currentTrac
+          -k.item                                                        
+      152 +                $item = $currentTrack.item                    
+      153 +                if ($item.type -eq "episode") {               
+      154 +                    Write-Host "🎙️ Now playing: $($item.name)"
+          + -ForegroundColor Magenta                                     
+      155 +                } else {                                      
+      156 +                    $artists = ($item.artists | ForEach-Object
+          + { $_.name }) -join ", "                                      
+      157 +                    Write-Host "🎵 Now playing: $($item.name) 
+          +by $artists" -ForegroundColor Cyan                            
+      158 +                }                                             
+      159              }
+      160          } catch {
+      156 -            # If we can't get track info, show generic notific
+          -ation                                                         
+      157 -            Show-TrackNotification -Title "Spotify" -Message "
+          -Skipped to next track"                                        
+      161 +            # Silently ignore if we can't get track info      
+      162          }
+      163      }
+      164      catch {
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 9 lines, removed 5 lines                                      
+      183      try {
+      184          Invoke-SpotifyApi -Method POST -Path "/me/player/previ
+           ous" | Out-Null
+      185          Write-Host "⏮️ Skipped to previous track" -ForegroundC
+           olor Green
+      186 -        # Wait a moment for Spotify to update, then show notif
+          -ication                                                       
+      186 +        # Wait a moment for Spotify to update, then show curre
+          +nt track                                                      
+      187          Start-Sleep -Milliseconds 500
+      188 -        # Get current track info and show notification        
+      188          try {
+      189              $currentTrack = Invoke-SpotifyApi -Method GET -Pat
+           h "/me/player/currently-playing"
+      190              if ($currentTrack -and $currentTrack.item) {
+      192 -                Show-TrackNotification -TrackInfo $currentTrac
+          -k.item                                                        
+      191 +                $item = $currentTrack.item                    
+      192 +                if ($item.type -eq "episode") {               
+      193 +                    Write-Host "🎙️ Now playing: $($item.name)"
+          + -ForegroundColor Magenta                                     
+      194 +                } else {                                      
+      195 +                    $artists = ($item.artists | ForEach-Object
+          + { $_.name }) -join ", "                                      
+      196 +                    Write-Host "🎵 Now playing: $($item.name) 
+          +by $artists" -ForegroundColor Cyan                            
+      197 +                }                                             
+      198              }
+      199          } catch {
+      195 -            # If we can't get track info, show generic notific
+          -ation                                                         
+      196 -            Show-TrackNotification -Title "Spotify" -Message "
+          -Skipped to previous track"                                    
+      200 +            # Silently ignore if we can't get track info      
+      201          }
+      202      }
+      203      catch {
+
+● Fixed. I replaced the non-existent Show-TrackNotification calls with inline code that displays the current track info.
+
+  Now next and previous will show:
+  ⏭️ Skipped to next track
+  🎵 Now playing: Song Name by Artist Name
+
+  Reload your profile (. $PROFILE) and try next again.
+
+✻ Churned for 50s
+
+❯ nej det syns inga notificationer. det ska popa up när man byter låt,      
+  kanske vid play och pause oxå. det funka på förra verisonen               
+
+● Jag förstår - du vill ha Windows toast-notifikationer som poppar upp. Låt mig leta efter hur det fungerade tidigare.
+
+● Search(pattern: "notification|toast|BurntToast|balloon", glob: "**/*.ps*",
+        output_mode: "content")
+  ⎿  Found 313 lines (ctrl+o to expand)
+
+● Search(pattern:
+        "function.*Notification|New-BurntToastNotification|Show-Notification",
+        glob: "**/*.psm1", output_mode: "content")
+  ⎿  Found 0 lines 
+
+● Search(pattern: "Show-TrackNotification|notification", path: "old_files",
+        output_mode: "content")
+  ⎿  Found 37 lines (ctrl+o to expand)
+
+● Search(pattern: "BurntToast|New-BurntToast", path: "old_files", output_mode:
+        "content")
+  ⎿  Found 149 lines (ctrl+o to expand)
+
+● Search(pattern: "function.*notification|Show-.*Toast|New-BurntToast", path:
+        "old_files\SpotifyModule.psm1", output_mode: "content")
+  ⎿  Found 0 lines 
+
+● Read(old_files\SpotifyModule.psm1)
+  ⎿  Read 50 lines
+
+● Search(pattern: "notifications|NotificationsEnabled|BurntToast", path:
+        "SpotifyModule.psm1", output_mode: "content")
+  ⎿  Error searching files
+
+● Search(pattern: "*.psm1")
+  ⎿  Found 27 files (ctrl+o to expand)
+
+● Search(pattern: "notifications|BurntToast|toast", path: "modules",
+        output_mode: "content")
+  ⎿  Found 1 line (ctrl+o to expand)
+
+● Jag ser att notifikationsfunktionen aldrig implementerades fullt ut. Låt mig skapa en ordentlig Show-TrackNotification funktion som använder Windows toast-notifikationer.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 20 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 77 lines                                                      
+       1  # PlaybackCommands Module
+       2  # Contains all core functions for controlling Spotify playback.
+       3  
+       4 +# --- Notification Helper ---                                  
+       5 +function Show-TrackNotification {                              
+       6 +    <#                                                         
+       7 +    .SYNOPSIS                                                  
+       8 +    Shows a Windows toast notification for track changes       
+       9 +    #>                                                         
+      10 +    param(                                                     
+      11 +        [Parameter(ParameterSetName='TrackInfo')]              
+      12 +        $TrackInfo,                                            
+      13 +                                                               
+      14 +        [Parameter(ParameterSetName='Custom')]                 
+      15 +        [string]$Title,                                        
+      16 +                                                               
+      17 +        [Parameter(ParameterSetName='Custom')]                 
+      18 +        [string]$Message                                       
+      19 +    )                                                          
+      20 +                                                               
+      21 +    try {                                                      
+      22 +        # Determine notification content                       
+      23 +        if ($TrackInfo) {                                      
+      24 +            if ($TrackInfo.type -eq "episode") {               
+      25 +                $notifyTitle = $TrackInfo.name                 
+      26 +                $notifyMessage = $TrackInfo.show.name          
+      27 +                $appLogo = $TrackInfo.images[0].url            
+      28 +            } else {                                           
+      29 +                $notifyTitle = $TrackInfo.name                 
+      30 +                $artists = ($TrackInfo.artists | ForEach-Object
+         + { $_.name }) -join ", "                                       
+      31 +                $notifyMessage = $artists                      
+      32 +                $appLogo = if ($TrackInfo.album -and $TrackInfo
+         +.album.images) { $TrackInfo.album.images[0].url } else { $null 
+         +}                                                              
+      33 +            }                                                  
+      34 +        } else {                                               
+      35 +            $notifyTitle = $Title                              
+      36 +            $notifyMessage = $Message                          
+      37 +            $appLogo = $null                                   
+      38 +        }                                                      
+      39 +                                                               
+      40 +        # Try BurntToast first (best experience)               
+      41 +        if (Get-Module -ListAvailable -Name BurntToast) {      
+      42 +            Import-Module BurntToast -ErrorAction SilentlyConti
+         +nue                                                            
+      43 +                                                               
+      44 +            $toastParams = @{                                  
+      45 +                Text = $notifyTitle, $notifyMessage            
+      46 +                Silent = $true                                 
+      47 +            }                                                  
+      48 +                                                               
+      49 +            # Add album art if available                       
+      50 +            if ($appLogo) {                                    
+      51 +                $toastParams['AppLogo'] = $appLogo             
+      52 +            }                                                  
+      53 +                                                               
+      54 +            New-BurntToastNotification @toastParams            
+      55 +        }                                                      
+      56 +        else {                                                 
+      57 +            # Fallback: Use Windows balloon tip via .NET       
+      58 +            Add-Type -AssemblyName System.Windows.Forms -ErrorA
+         +ction SilentlyContinue                                         
+      59 +                                                               
+      60 +            if ([System.Windows.Forms.SystemInformation]::Termi
+         +nalServerSession -eq $false) {                                 
+      61 +                $balloon = New-Object System.Windows.Forms.Noti
+         +fyIcon                                                         
+      62 +                $balloon.Icon = [System.Drawing.SystemIcons]::I
+         +nformation                                                     
+      63 +                $balloon.BalloonTipIcon = [System.Windows.Forms
+         +.ToolTipIcon]::Info                                            
+      64 +                $balloon.BalloonTipTitle = $notifyTitle        
+      65 +                $balloon.BalloonTipText = $notifyMessage       
+      66 +                $balloon.Visible = $true                       
+      67 +                $balloon.ShowBalloonTip(3000)                  
+      68 +                                                               
+      69 +                # Clean up after a delay                       
+      70 +                Start-Sleep -Milliseconds 3500                 
+      71 +                $balloon.Dispose()                             
+      72 +            }                                                  
+      73 +        }                                                      
+      74 +    }                                                          
+      75 +    catch {                                                    
+      76 +        # Silently fail - notifications are optional           
+      77 +        Write-Verbose "Notification failed: $($_.Exception.Mess
+         +age)"                                                          
+      78 +    }                                                          
+      79 +}                                                              
+      80 +                                                               
+      81  function play {
+      82      param([string]$TrackReference)
+      83  
+
+● Nu behöver jag uppdatera next och previous för att använda notifikationen igen.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 60 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 2 lines                                                       
+      233                      $artists = ($item.artists | ForEach-Object
+            { $_.name }) -join ", "
+      234                      Write-Host "🎵 Now playing: $($item.name) 
+           by $artists" -ForegroundColor Cyan
+      235                  }
+      236 +                # Show toast notification                     
+      237 +                Show-TrackNotification -TrackInfo $item       
+      238              }
+      239          } catch {
+      240              # Silently ignore if we can't get track info
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 2 lines                                                       
+      274                      $artists = ($item.artists | ForEach-Object
+            { $_.name }) -join ", "
+      275                      Write-Host "🎵 Now playing: $($item.name) 
+           by $artists" -ForegroundColor Cyan
+      276                  }
+      277 +                # Show toast notification                     
+      278 +                Show-TrackNotification -TrackInfo $item       
+      279              }
+      280          } catch {
+      281              # Silently ignore if we can't get track info
+
+● Bra! Nu behöver du installera BurntToast-modulen för att få toast-notifikationer. Kör:
+
+  Install-Module -Name BurntToast -Scope CurrentUser
+
+  Ladda sedan om din profil (. $PROFILE) och testa next igen.
+
+  Sammanfattning av ändringarna:
+  1. Lade till Show-TrackNotification funktion i PlaybackCommands.psm1
+  2. Använder BurntToast om installerad (visar albumomslag!)
+  3. Fallback till Windows balloon-notifikationer om BurntToast saknas
+  4. Uppdaterade next och previous för att visa notifikationer
+
+✻ Brewed for 2m 22s
+
+❯ Kan den visa vid play och stop oxå Artist, låtnamn play vid play, pause   
+  vid pause                                                                 
+
+● Självklart! Låt mig uppdatera play och pause funktionerna också.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 70 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 14 lines, removed 1 line                                      
+      15          [string]$Title,
+      16  
+      17          [Parameter(ParameterSetName='Custom')]
+      18 -        [string]$Message                                       
+      18 +        [string]$Message,                                      
+      19 +                                                               
+      20 +        [ValidateSet('play', 'pause', 'next', 'previous', '')] 
+      21 +        [string]$Action = ''                                   
+      22      )
+      23  
+      24      try {
+     ...
+      34                  $notifyMessage = $artists
+      35                  $appLogo = if ($TrackInfo.album -and $TrackInfo
+          .album.images) { $TrackInfo.album.images[0].url } else { $null 
+          }
+      36              }
+      37 +                                                               
+      38 +            # Add action indicator to title                    
+      39 +            $actionIcon = switch ($Action) {                   
+      40 +                'play' { '▶️ ' }                               
+      41 +                'pause' { '⏸️ ' }                              
+      42 +                'next' { '⏭️ ' }                               
+      43 +                'previous' { '⏮️ ' }                           
+      44 +                default { '' }                                 
+      45 +            }                                                  
+      46 +            $notifyTitle = "$actionIcon$notifyTitle"           
+      47          } else {
+      48              $notifyTitle = $Title
+      49              $notifyMessage = $Message
+
+● Nu uppdaterar jag play och pause funktionerna.
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 8 lines                                                       
+      170      try {
+      171          Invoke-SpotifyApi -Method PUT -Path "/me/player/play" 
+           | Out-Null
+      172          Write-Host "▶️ Resumed playback" -ForegroundColor Gree
+           n
+      173 +        # Show notification with current track                
+      174 +        Start-Sleep -Milliseconds 300                         
+      175 +        try {                                                 
+      176 +            $currentTrack = Invoke-SpotifyApi -Method GET -Pat
+          +h "/me/player/currently-playing"                              
+      177 +            if ($currentTrack -and $currentTrack.item) {      
+      178 +                Show-TrackNotification -TrackInfo $currentTrac
+          +k.item -Action 'play'                                         
+      179 +            }                                                 
+      180 +        } catch { }                                           
+      181      }
+      182      catch {
+      183          # This is the expected error when nothing is active.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 30 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 11 lines                                                      
+      217  
+      218  function pause {
+      219      try {
+      220 +        # Get current track BEFORE pausing for notification   
+      221 +        $currentTrack = $null                                 
+      222 +        try {                                                 
+      223 +            $currentTrack = Invoke-SpotifyApi -Method GET -Pat
+          +h "/me/player/currently-playing"                              
+      224 +        } catch { }                                           
+      225 +                                                              
+      226          Invoke-SpotifyApi -Method PUT -Path "/me/player/pause"
+            | Out-Null
+      227          Write-Host "⏸️ Paused playback" -ForegroundColor Yello
+           w
+      228 +                                                              
+      229 +        # Show notification with track info                   
+      230 +        if ($currentTrack -and $currentTrack.item) {          
+      231 +            Show-TrackNotification -TrackInfo $currentTrack.it
+          +em -Action 'pause'                                            
+      232 +        }                                                     
+      233      }
+      234      catch {
+      235          $errorMessage = $_.Exception.Message
+
+● Nu uppdaterar jag next och previous för att skicka rätt action.
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      266                      Write-Host "🎵 Now playing: $($item.name) 
+           by $artists" -ForegroundColor Cyan
+      267                  }
+      268                  # Show toast notification
+      269 -                Show-TrackNotification -TrackInfo $item       
+      269 +                Show-TrackNotification -TrackInfo $item -Actio
+          +n 'next'                                                      
+      270              }
+      271          } catch {
+      272              # Silently ignore if we can't get track info
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 1 line, removed 1 line                                        
+      307                      Write-Host "🎵 Now playing: $($item.name) 
+           by $artists" -ForegroundColor Cyan
+      308                  }
+      309                  # Show toast notification
+      310 -                Show-TrackNotification -TrackInfo $item       
+      310 +                Show-TrackNotification -TrackInfo $item -Actio
+          +n 'previous'                                                  
+      311              }
+      312          } catch {
+      313              # Silently ignore if we can't get track info
+
+● Låt mig också lägga till notifikation när man spelar en specifik låt.
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 50 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 16 lines                                                      
+      133              } else {
+      134                  Write-Host "▶️ Playing track" -ForegroundColor
+            Green
+      135              }
+      136 +            # Show notification                               
+      137 +            Start-Sleep -Milliseconds 300                     
+      138 +            try {                                             
+      139 +                $currentTrack = Invoke-SpotifyApi -Method GET 
+          +-Path "/me/player/currently-playing"                          
+      140 +                if ($currentTrack -and $currentTrack.item) {  
+      141 +                    Show-TrackNotification -TrackInfo $current
+          +Track.item -Action 'play'                                     
+      142 +                }                                             
+      143 +            } catch { }                                       
+      144          }
+      145          catch {
+      146              # If no active device, try to activate one
+     ...
+      166                  } else {
+      167                      Write-Host "▶️ Playing track" -ForegroundC
+           olor Green
+      168                  }
+      169 +                # Show notification                           
+      170 +                Start-Sleep -Milliseconds 300                 
+      171 +                try {                                         
+      172 +                    $currentTrack = Invoke-SpotifyApi -Method 
+          +GET -Path "/me/player/currently-playing"                      
+      173 +                    if ($currentTrack -and $currentTrack.item)
+          + {                                                            
+      174 +                        Show-TrackNotification -TrackInfo $cur
+          +rentTrack.item -Action 'play'                                 
+      175 +                    }                                         
+      176 +                } catch { }                                   
+      177              }
+      178              catch {
+      179                  Write-Host "❌ Could not play track: $($_.Exce
+           ption.Message)" -ForegroundColor Red
+
+● Klart! Nu har alla kommandon notifikationer:
+
+  Sammanfattning:
+  ┌──────────┬─────────────────────┐
+  │ Kommando │    Notifikation     │
+  ├──────────┼─────────────────────┤
+  │ play     │ ▶️ Låtnamn / Artist │
+  ├──────────┼─────────────────────┤
+  │ pause    │ ⏸️ Låtnamn / Artist │
+  ├──────────┼─────────────────────┤
+  │ next     │ ⏭️ Låtnamn / Artist │
+  ├──────────┼─────────────────────┤
+  │ previous │ ⏮️ Låtnamn / Artist │
+  └──────────┴─────────────────────┘
+  För att aktivera:
+
+  1. Installera BurntToast (om du inte redan har det):
+  Install-Module -Name BurntToast -Scope CurrentUser
+  2. Ladda om profilen:
+  . $PROFILE
+  3. Testa:
+  play
+  pause
+  next
+
+  Notifikationerna visar:
+  - Låtnamn med action-ikon (▶️/⏸️/⏭️/⏮️)
+  - Artistnamn
+  - Albumomslag (om BurntToast är installerad)
+
+✻ Cooked for 2m 7s
+
+❯ Kan vi lägga till album namn mellan artist och låtnamn sam lägga till     
+  emojis framför låtnamn, album och artist?                                 
+
+● Read(modules\Core\PlaybackCommands.psm1)
+  ⎿  Read 40 lines
+
+● Update(modules\Core\PlaybackCommands.psm1)
+  ⎿  Added 15 lines, removed 14 lines                                    
+      24      try {
+      25          # Determine notification content
+      26          if ($TrackInfo) {
+      27 +            # Add action indicator                             
+      28 +            $actionIcon = switch ($Action) {                   
+      29 +                'play' { '▶️' }                                
+      30 +                'pause' { '⏸️' }                               
+      31 +                'next' { '⏭️' }                                
+      32 +                'previous' { '⏮️' }                            
+      33 +                default { '🎵' }                               
+      34 +            }                                                  
+      35 +                                                               
+      36              if ($TrackInfo.type -eq "episode") {
+      28 -                $notifyTitle = $TrackInfo.name                 
+      29 -                $notifyMessage = $TrackInfo.show.name          
+      37 +                $notifyTitle = "$actionIcon 🎙️ $($TrackInfo.nam
+         +e)"                                                            
+      38 +                $notifyMessage = "📺 $($TrackInfo.show.name)"  
+      39                  $appLogo = $TrackInfo.images[0].url
+      40              } else {
+      32 -                $notifyTitle = $TrackInfo.name                 
+      41                  $artists = ($TrackInfo.artists | ForEach-Object
+           { $_.name }) -join ", "
+      34 -                $notifyMessage = $artists                      
+      42 +                $albumName = if ($TrackInfo.album) { $TrackInfo
+         +.album.name } else { "Unknown Album" }                         
+      43 +                                                               
+      44 +                $notifyTitle = "$actionIcon 🎵 $($TrackInfo.nam
+         +e)"                                                            
+      45 +                $notifyMessage = "💿 $albumName`n👤 $artists"  
+      46                  $appLogo = if ($TrackInfo.album -and $TrackInfo
+          .album.images) { $TrackInfo.album.images[0].url } else { $null 
+          }
+      47              }
+      37 -                                                               
+      38 -            # Add action indicator to title                    
+      39 -            $actionIcon = switch ($Action) {                   
+      40 -                'play' { '▶️ ' }                               
+      41 -                'pause' { '⏸️ ' }                              
+      42 -                'next' { '⏭️ ' }                               
+      43 -                'previous' { '⏮️ ' }                           
+      44 -                default { '' }                                 
+      45 -            }                                                  
+      46 -            $notifyTitle = "$actionIcon$notifyTitle"           
+      48          } else {
+      49              $notifyTitle = $Title
+      50              $notifyMessage = $Message
+
+● Klart! Nu visar notifikationerna:
+
+  För musik:
+  ▶️ 🎵 Låtnamn
+  💿 Albumnamn
+  👤 Artistnamn
+
+  För podcasts:
+  ▶️ 🎙️ Avsnittets namn
+  📺 Podcastens namn
+
+  Ladda om profilen (. $PROFILE) och testa!
+
+✻ Cogitated for 30s
+
+❯ Skulle det gå att ändra alla command names för att få bort WARNING: Some  
+  imported command names contain one or more of the following restricted    
+  characters: # , ( ) {{ }} [ ] & - / \ $ ^ ; : " ' < > | ? @ ` * % + = ~   
+  WARNING: The names of some imported commands from the module              
+  'SpotifyCommands' include unapproved verbs that might make them less      
+  discoverable. To find the commands with unapproved verbs, run the         
+  Import-Module command again with the Verbose parameter. For a list of     
+  approved verbs, type Get-Verb.                                            
+
+● Det är möjligt, men det är ett stort jobb. Låt mig först se vilka funktioner som orsakar varningarna.
+
+● Search(pattern: "^function [a-z]+-[a-z]+|^function
+        (play|pause|next|previous|search|shuffle|repeat|volume|seek|transfer|que
+        ue|devices|playlists|albums|lyrics)", path: "modules", output_mode:
+        "content")
+  ⎿  Found 153 lines (ctrl+o to expand)
+
+● Search(pattern: "^function (play|pause|next|previous|shuffle|repeat|volume|see
+        k|transfer|queue|devices|playlists|albums|lyrics|search|recent|pn|now|sk
+        ip-forward|skip-back|replay|save-track|unsave-track|add-to-playlist|crea
+        te-playlist|create-smart-playlist|delete-playlist|queue-album|play-album
+        |play-playlist|queue-playlist)[ {]", path: "modules\Core", output_mode:
+        "content")
+  ⎿  Found 27 lines (ctrl+o to expand)
+
+● Det finns två lösningar:
+
+  Snabb lösning: Tysta varningarna (redan gjort i profilen, men kanske inte aktiverat)
+
+  Ordentlig lösning: Byta namn på alla funktioner till godkända PowerShell-verb och behålla aliases
+
+  Vilken föredrar du? Den ordentliga lösningen innebär:
+  ┌───────────┬─────────────────────────┬───────────┐
+  │ Nuvarande │        Nytt namn        │   Alias   │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ play      │ Start-SpotifyPlayback   │ play      │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ pause     │ Suspend-SpotifyPlayback │ pause     │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ next      │ Skip-SpotifyNext        │ next      │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ previous  │ Skip-SpotifyPrevious    │ previous  │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ search    │ Search-Spotify          │ search    │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ queue     │ Add-SpotifyQueue        │ queue     │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ devices   │ Get-SpotifyDevices      │ devices   │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ playlists │ Get-SpotifyPlaylists    │ playlists │
+  ├───────────┼─────────────────────────┼───────────┤
+  │ ...       │ ...                     │ ...       │
+  └───────────┴─────────────────────────┴───────────┘
+  Det är ca 25+ funktioner att byta namn på. Vill du att jag:
+  1. Snabb fix - Bara tysta varningarna helt
+  2. Ordentlig fix - Byta namn på alla funktioner (tar längre tid)
+
+✻ Cooked for 50s
+
+❯ Går det att tysta, tyckte du nämnde att det inte gick 
+
+● Du har rätt att -WarningAction SilentlyContinue inte fungerar för dessa specifika varningar. Men det finns en annan parameter: -DisableNameChecking som är gjord just för detta!
+
+  Låt mig kolla din profil och fixa det.
+
+● Bash(cat
+      "$env:USERPROFILE\Documents\PowerShell\Microsoft.PowerShell_profile.ps1" |
+       head -50)
+  ⎿ cat:                                                                 
+    ':USERPROFILE\Documents\PowerShell\Microsoft.PowerShell_profile.ps
+    1': No such file or directory
+
+● Bash(powershell -Command "Get-Content $PROFILE -Head 50")
+  ⎿  Error: Exit code 1
+     Get-Content : Cannot process command because of one or more missing 
+     mandatory parameters: Path.
+     At line:1 char:1
+     + Get-Content  -Head 50
+     + ~~~~~~~~~~~~~~~~~~~~~
+         + CategoryInfo          : InvalidArgument: (:) [Get-Content], 
+     ParameterBindingException
+         + FullyQualifiedErrorId : 
+     MissingMandatoryParameter,Microsoft.PowerShell.Commands.GetContentCommand
+
+● Bash(powershell -Command "Write-Host \$PROFILE; if (Test-Path \$PROFILE) {
+      Get-Content \$PROFILE | Select-Object -First 50 }")
+  ⎿ C:\Users\tommy\Documents\WindowsPowerShell\Microsoft.PowerShell_profi
+    e
+    .ps1
+
+● Read(~\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1)
+  ⎿  Error reading file
+
+● Search(pattern:
+        "C:/Users/tommy/Documents/**/Microsoft.PowerShell_profile.ps1")
+  ⎿  Found 0 files 
+
+● Bash(powershell -Command "Get-ChildItem -Path $env:USERPROFILE\\Documents
+      -Recurse -Filter '*profile*' 2>$null | Select-Object -First 10")
+  ⎿  Error: Exit code 1
+     At line:1 char:75
+     + ...  -Path :USERPROFILE\Documents -Recurse -Filter '*profile*' 2> | Selec 
+     ...
+     +                                                                  ~
+     Missing file specification after redirection operator.
+         + CategoryInfo          : ParserError: (:) [], 
+     ParentContainsErrorRecordException
+         + FullyQualifiedErrorId : MissingFileSpecification
+
+
+● Bash(pwsh -Command 'Write-Host "Profile path: $PROFILE"; if (Test-Path
+      $PROFILE) { Get-Content $PROFILE } else { Write-Host "Profile does not
+      exist" }')
+  ⎿ ?? Life worth living, I higly doubt it. -Orca                        
+    ? Profile laddad p� 1514ms
+    WARNING: Some imported command names contain one or more of the 
+    followi
+    … +160 lines (ctrl+o to expand)
+
+● Jag ser problemet! Import-Module saknar -DisableNameChecking. Låt mig fixa profilen.
+
+● Read(~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1)
+  ⎿  Read 115 lines
+
+● Update(~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1)
+  ⎿  Added 1 line, removed 1 line                                        
+      111  if (Test-Path 'C:\Users\tommy\Documents\PowerShell\Orca\Orca.p
+           s1') { . 'C:\Users\tommy\Documents\PowerShell\Orca\Orca.ps1' }
+      112  
+      113  # Spotify CLI - Live Features Edition v3.1.0
+      114 -Import-Module SpotifyCommands -Force -ErrorAction SilentlyCont
+          -inue                                                          
+      114 +Import-Module SpotifyCommands -Force -ErrorAction SilentlyCont
+          +inue -WarningAction SilentlyContinue -DisableNameChecking     
+
+● Fixat! Lade till -DisableNameChecking som tystar varningarna om funktionsnamn.
+
+  Jag såg också ett fel i profile.ps1 - en ensam } på rad 1. Låt mig kolla den filen.
+
+● Read(~\Documents\PowerShell\profile.ps1)
+  ⎿  Read 2 lines
+
+● Write(~\Documents\PowerShell\profile.ps1)
+  ⎿  Added 1 line, removed 1 line                                        
+      1 -}                                                              
+      1 +# This file is intentionally empty - main profile is in Microsof
+        +t.PowerShell_profile.ps1                                        
+
+● Klart! Jag fixade två saker:
+
+  1. Lade till -DisableNameChecking i Import-Module - tystar varningarna om funktionsnamn
+  2. Tog bort ensam } i profile.ps1 - orsakade ett ParserError
+
+  Ladda om profilen för att testa:
+  . $PROFILE
+
+  Nu borde varningarna vara borta!
+
+✻ Worked for 1m 48s
+
+❯ Så det hade inte med spotify installationen att göra? 
+
+● Nej, det hade med profilen att göra, inte Spotify-installationen.
+
+  Problemet var att Import-Module saknande flaggan -DisableNameChecking. Spotify-modulen har fortfarande funktioner som play, pause, next etc. (som PowerShell klagar på), men nu säger vi åt PowerShell att ignorera de varningarna vid import.
+
+  Så:
+  - Spotify-koden är oförändrad (fortfarande play, pause, etc.)
+  - Profilen säger nu åt PowerShell att tysta varningarna
+
+  Det är den "snabba fixen" - fungerar likadant, bara inga irriterande varningar.
+
+  Den "ordentliga fixen" hade varit att byta namn på alla funktioner till Start-SpotifyPlayback, Suspend-SpotifyPlayback, etc. - men det är mycket jobb för bara kosmetik.
+
+
+

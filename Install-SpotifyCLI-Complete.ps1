@@ -485,7 +485,7 @@ function Update-PowerShellProfile {
     $importStatement = @"
 
 # Spotify CLI - Live Features Edition v$script:ModuleVersion
-Import-Module SpotifyCommands -Force -ErrorAction SilentlyContinue
+Import-Module SpotifyCommands -Force -DisableNameChecking -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
 "@
 
     $newContent = $profileContent + "`n" + $importStatement
@@ -575,7 +575,7 @@ function Test-Installation {
 
     # Testa modulimport
     try {
-        Import-Module $script:InstallPath -Force -ErrorAction Stop
+        Import-Module $script:InstallPath -Force -DisableNameChecking -WarningAction SilentlyContinue -ErrorAction Stop
         $results.ModuleLoaded = $true
         Write-InstallLog "Modulen laddades korrekt" "SUCCESS"
     } catch {
@@ -810,7 +810,7 @@ function Start-Installation {
     # Steg 7: Skapa alias (efter att modulen ar pa plats)
     # Ladda modulen forst
     try {
-        Import-Module $script:InstallPath -Force -ErrorAction Stop
+        Import-Module $script:InstallPath -Force -DisableNameChecking -WarningAction SilentlyContinue -ErrorAction Stop
     } catch {
         Write-InstallLog "Varning: Kunde inte ladda modulen for alias-skapande: $_" "WARNING"
     }
