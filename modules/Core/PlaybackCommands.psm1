@@ -1,6 +1,60 @@
 # PlaybackCommands Module
 # Contains all core functions for controlling Spotify playback.
 
+# --- Spotify Auto-Start Helper ---
+function Start-SpotifyIfNeeded {
+    <#
+    .SYNOPSIS
+    Starts Spotify app if no devices are available and waits for it to become ready
+    .OUTPUTS
+    Returns $true if a device becomes available, $false otherwise
+    #>
+    Write-Host "🚀 Starting Spotify..." -ForegroundColor Cyan
+
+    # Try common Spotify paths
+    $spotifyPaths = @(
+        "$env:APPDATA\Spotify\Spotify.exe",
+        "$env:LOCALAPPDATA\Microsoft\WindowsApps\Spotify.exe",
+        "spotify"
+    )
+
+    $started = $false
+    foreach ($path in $spotifyPaths) {
+        try {
+            Start-Process $path -ErrorAction Stop
+            $started = $true
+            break
+        } catch {
+            continue
+        }
+    }
+
+    if (-not $started) {
+        Write-Host "❌ Could not find Spotify. Please install it or start it manually." -ForegroundColor Red
+        return $false
+    }
+
+    # Wait for Spotify to register as a device (up to 15 seconds)
+    Write-Host "⏳ Waiting for Spotify to start..." -ForegroundColor Yellow
+    $maxAttempts = 15
+    for ($i = 1; $i -le $maxAttempts; $i++) {
+        Start-Sleep -Seconds 1
+        try {
+            $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
+            if ($devicesResponse -and $devicesResponse.devices -and $devicesResponse.devices.Count -gt 0) {
+                Write-Host "✅ Spotify is ready!" -ForegroundColor Green
+                return $true
+            }
+        } catch {
+            # API might fail while Spotify is starting, continue waiting
+        }
+        Write-Host "   Waiting... ($i/$maxAttempts)" -ForegroundColor DarkGray
+    }
+
+    Write-Host "❌ Spotify started but no device appeared. Try again in a moment." -ForegroundColor Red
+    return $false
+}
+
 # --- Notification Helper ---
 function Show-TrackNotification {
     <#
@@ -149,8 +203,16 @@ function play {
             try {
                 $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
                 if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-                    Write-Host "❌ No available devices found. Please start Spotify on a device." -ForegroundColor Red
-                    return
+                    # No devices found - try to start Spotify automatically
+                    if (-not (Start-SpotifyIfNeeded)) {
+                        return
+                    }
+                    # Re-fetch devices after starting Spotify
+                    $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
+                    if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
+                        Write-Host "❌ Still no devices available." -ForegroundColor Red
+                        return
+                    }
                 }
 
                 $firstDevice = $devicesResponse.devices[0]
@@ -203,8 +265,16 @@ function play {
         try {
             $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
             if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-                Write-Host "❌ No available devices found. Please start Spotify on a device." -ForegroundColor Red
-                return
+                # No devices found - try to start Spotify automatically
+                if (-not (Start-SpotifyIfNeeded)) {
+                    return
+                }
+                # Re-fetch devices after starting Spotify
+                $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
+                if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
+                    Write-Host "❌ Still no devices available." -ForegroundColor Red
+                    return
+                }
             }
 
             $activeDevice = $devicesResponse.devices | Where-Object { $_.is_active -eq $true } | Select-Object -First 1
