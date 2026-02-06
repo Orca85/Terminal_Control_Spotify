@@ -4,6 +4,21 @@
 $script:InteractiveMode = $false
 $script:CurrentItems = @()
 $script:SelectedIndex = 0
+$script:ViewportStart = 0
+$script:HeaderLines = 5
+
+function Get-TerminalSize {
+    try {
+        $width = $Host.UI.RawUI.WindowSize.Width
+        $height = $Host.UI.RawUI.WindowSize.Height
+    } catch {
+        $width = 80
+        $height = 24
+    }
+    if ($width -lt 40) { $width = 40 }
+    if ($height -lt 10) { $height = 10 }
+    return @{ Width = $width; Height = $height }
+}
 
 function Start-InteractiveMode {
     <#
@@ -35,12 +50,16 @@ function Start-InteractiveMode {
     $script:InteractiveMode = $true
     $script:CurrentItems = $Items
     $script:SelectedIndex = 0
+    $script:ViewportStart = 0
+
+    $termSize = Get-TerminalSize
+    $separatorWidth = [Math]::Min($termSize.Width - 1, 80)
 
     Clear-Host
     Write-Host ""
     Write-Host "🎮 $Title" -ForegroundColor Cyan
-    Write-Host ("=" * 80) -ForegroundColor DarkGray
-    Write-Host "⌨️  Controls: ↑↓ Navigate | Enter Play | Space Queue | Esc Exit" -ForegroundColor Yellow
+    Write-Host ("=" * $separatorWidth) -ForegroundColor DarkGray
+    Write-Host "⌨️  ↑↓ Navigate | Enter Play | Space Queue | Esc Exit" -ForegroundColor Yellow
     Write-Host ""
 
     Show-InteractiveItems
@@ -98,53 +117,96 @@ function Start-InteractiveMode {
 }
 
 function Show-InteractiveItems {
-    # Save cursor position
-    $currentLine = [Console]::CursorTop
+    $termSize = Get-TerminalSize
+    $termWidth = $termSize.Width
+    $termHeight = $termSize.Height
 
-    # Clear and redraw items
+    # Calculate visible item slots: total height minus header (5 lines) minus footer (2 lines for scroll indicators + blank)
+    $maxVisible = $termHeight - $script:HeaderLines - 3
+    if ($maxVisible -lt 3) { $maxVisible = 3 }
+
+    $totalItems = $script:CurrentItems.Count
+
+    # Adjust viewport to keep selected item visible
+    if ($script:SelectedIndex -lt $script:ViewportStart) {
+        $script:ViewportStart = $script:SelectedIndex
+    }
+    if ($script:SelectedIndex -ge ($script:ViewportStart + $maxVisible)) {
+        $script:ViewportStart = $script:SelectedIndex - $maxVisible + 1
+    }
+    if ($script:ViewportStart -lt 0) { $script:ViewportStart = 0 }
+
+    $viewEnd = [Math]::Min($script:ViewportStart + $maxVisible, $totalItems)
+
     try {
-        # Move cursor to start of list
-        [Console]::SetCursorPosition(0, 5)
+        # Move cursor to start of list area
+        [Console]::SetCursorPosition(0, $script:HeaderLines)
 
-        for ($i = 0; $i -lt $script:CurrentItems.Count; $i++) {
+        # Show "more above" indicator
+        $clearStr = " " * ($termWidth - 1)
+        if ($script:ViewportStart -gt 0) {
+            $aboveText = "  ▲ $($script:ViewportStart) more above"
+            if ($aboveText.Length -gt ($termWidth - 1)) { $aboveText = $aboveText.Substring(0, $termWidth - 1) }
+            Write-Host $clearStr -NoNewline
+            [Console]::SetCursorPosition(0, [Console]::CursorTop)
+            Write-Host $aboveText -ForegroundColor DarkCyan
+        } else {
+            Write-Host $clearStr -NoNewline
+            [Console]::SetCursorPosition(0, [Console]::CursorTop)
+            Write-Host ""
+        }
+
+        # Draw visible items
+        for ($i = $script:ViewportStart; $i -lt $viewEnd; $i++) {
             $item = $script:CurrentItems[$i]
             $isSelected = ($i -eq $script:SelectedIndex)
             $prefix = if ($isSelected) { "► " } else { "  " }
             $color = if ($isSelected) { "Yellow" } else { "White" }
 
-            # Clear line
-            Write-Host (" " * 120) -NoNewline
-            [Console]::SetCursorPosition(0, [Console]::CursorTop)
+            # Build display text
+            $displayText = Get-ItemDisplayText -Item $item -Index $i
 
-            # Determine item type and display appropriately
-            if ($item.type -eq "playlist" -or $item.search_type -eq "playlist") {
-                # Playlist item
-                $trackInfo = if ($item.description) { " • $($item.description)" } else { "" }
-                Write-Host "$prefix$($i + 1). 📁 $($item.name)$trackInfo" -ForegroundColor $color
+            # Truncate to fit terminal width
+            $fullLine = "$prefix$displayText"
+            if ($fullLine.Length -gt ($termWidth - 1)) {
+                $fullLine = $fullLine.Substring(0, $termWidth - 4) + "..."
             }
-            elseif ($item.PSObject.Properties.Name -contains 'track') {
-                # Queue item
-                $track = $item.track
-                $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
-                Write-Host "$prefix$($i + 1). 🎵 $($track.name) - $artists" -ForegroundColor $color
-            }
-            elseif ($item.type -eq "episode" -or $item.PSObject.Properties.Name -contains 'show') {
-                # Podcast episode
-                $showName = if ($item.show) { $item.show.name } else { "" }
-                Write-Host "$prefix$($i + 1). 🎙️ $($item.name) - $showName" -ForegroundColor $color
-            }
-            elseif ($item.PSObject.Properties.Name -contains 'artists') {
-                # Track
-                $artists = ($item.artists | ForEach-Object { $_.name }) -join ", "
-                Write-Host "$prefix$($i + 1). 🎵 $($item.name) - $artists" -ForegroundColor $color
-            }
-            else {
-                # Generic item - just show name
-                Write-Host "$prefix$($i + 1). $($item.name)" -ForegroundColor $color
-            }
+
+            # Clear line and write
+            Write-Host $clearStr -NoNewline
+            [Console]::SetCursorPosition(0, [Console]::CursorTop)
+            Write-Host $fullLine -ForegroundColor $color
         }
 
-        Write-Host ""
+        # Clear remaining lines in viewport area
+        $linesDrawn = ($viewEnd - $script:ViewportStart)
+        $remainingSlots = $maxVisible - $linesDrawn
+        for ($j = 0; $j -lt $remainingSlots; $j++) {
+            Write-Host $clearStr -NoNewline
+            [Console]::SetCursorPosition(0, [Console]::CursorTop)
+            Write-Host ""
+        }
+
+        # Show "more below" indicator
+        $belowCount = $totalItems - $viewEnd
+        if ($belowCount -gt 0) {
+            $belowText = "  ▼ $belowCount more below"
+            if ($belowText.Length -gt ($termWidth - 1)) { $belowText = $belowText.Substring(0, $termWidth - 1) }
+            Write-Host $clearStr -NoNewline
+            [Console]::SetCursorPosition(0, [Console]::CursorTop)
+            Write-Host $belowText -ForegroundColor DarkCyan
+        } else {
+            Write-Host $clearStr -NoNewline
+            [Console]::SetCursorPosition(0, [Console]::CursorTop)
+            Write-Host ""
+        }
+
+        # Status line
+        $statusText = "  ($($script:SelectedIndex + 1)/$totalItems)"
+        Write-Host $clearStr -NoNewline
+        [Console]::SetCursorPosition(0, [Console]::CursorTop)
+        Write-Host $statusText -ForegroundColor DarkGray
+
     } catch {
         # Fallback if console manipulation fails
         for ($i = 0; $i -lt $script:CurrentItems.Count; $i++) {
@@ -154,6 +216,31 @@ function Show-InteractiveItems {
 
             Write-Host "$prefix$($i + 1). $($item.name)" -ForegroundColor $(if ($isSelected) { "Yellow" } else { "White" })
         }
+    }
+}
+
+function Get-ItemDisplayText {
+    param($Item, [int]$Index)
+
+    if ($Item.type -eq "playlist" -or $Item.search_type -eq "playlist") {
+        $trackInfo = if ($Item.description) { " • $($Item.description)" } else { "" }
+        return "$($Index + 1). 📁 $($Item.name)$trackInfo"
+    }
+    elseif ($Item.PSObject.Properties.Name -contains 'track') {
+        $track = $Item.track
+        $artists = ($track.artists | ForEach-Object { $_.name }) -join ", "
+        return "$($Index + 1). 🎵 $($track.name) - $artists"
+    }
+    elseif ($Item.type -eq "episode" -or $Item.PSObject.Properties.Name -contains 'show') {
+        $showName = if ($Item.show) { $Item.show.name } else { "" }
+        return "$($Index + 1). 🎙️ $($Item.name) - $showName"
+    }
+    elseif ($Item.PSObject.Properties.Name -contains 'artists') {
+        $artists = ($Item.artists | ForEach-Object { $_.name }) -join ", "
+        return "$($Index + 1). 🎵 $($Item.name) - $artists"
+    }
+    else {
+        return "$($Index + 1). $($Item.name)"
     }
 }
 
@@ -299,6 +386,7 @@ function Queue-SpotifyItem {
 Export-ModuleMember -Function @(
     'Start-InteractiveMode',
     'Show-InteractiveItems',
+    'Get-ItemDisplayText',
     'Play-SpotifyItem',
     'Queue-SpotifyItem'
 )

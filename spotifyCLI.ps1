@@ -2533,35 +2533,46 @@ function Invoke-PlaylistsCommand {
             return
         }
         
+        # Get terminal width for truncation
+        $termWidth = try { $Host.UI.RawUI.WindowSize.Width } catch { 80 }
+        if ($termWidth -lt 40) { $termWidth = 40 }
+        $maxLineLen = $termWidth - 2
+        $separatorLen = [Math]::Min($termWidth - 1, 40)
+
         Write-Host "Your Spotify Playlists:" -ForegroundColor Cyan
-        Write-Host "======================" -ForegroundColor Cyan
+        Write-Host ("=" * $separatorLen) -ForegroundColor Cyan
         Write-Host ""
-        
+
         foreach ($playlist in $allPlaylists) {
             $playlistIcon = if ($playlist.public -eq $false) { "🔒" } else { "📋" }
-            $ownerInfo = if ($playlist.owner.display_name) { 
-                " by $($playlist.owner.display_name)" 
-            } else { 
-                "" 
+            $ownerInfo = if ($playlist.owner.display_name) {
+                " by $($playlist.owner.display_name)"
+            } else {
+                ""
             }
-            
+
             # Handle collaborative playlists
             if ($playlist.collaborative) {
                 $playlistIcon = "👥"
             }
-            
-            Write-Host "$playlistIcon $($playlist.name)$ownerInfo" -ForegroundColor White
+
+            $nameLine = "$playlistIcon $($playlist.name)$ownerInfo"
+            if ($nameLine.Length -gt $maxLineLen) {
+                $nameLine = $nameLine.Substring(0, $maxLineLen - 3) + "..."
+            }
+            Write-Host $nameLine -ForegroundColor White
             Write-Host "   📊 $($playlist.tracks.total) tracks" -ForegroundColor Gray
-            
+
             if ($playlist.description -and $playlist.description.Trim() -ne "") {
                 # Clean up HTML entities and limit description length
                 $description = $playlist.description -replace '&quot;', '"' -replace '&amp;', '&' -replace '&lt;', '<' -replace '&gt;', '>'
-                if ($description.Length -gt 100) {
-                    $description = $description.Substring(0, 97) + "..."
+                $maxDescLen = $maxLineLen - 6  # account for "   📝 " prefix
+                if ($description.Length -gt $maxDescLen) {
+                    $description = $description.Substring(0, $maxDescLen - 3) + "..."
                 }
                 Write-Host "   📝 $description" -ForegroundColor DarkGray
             }
-            
+
             Write-Host "   🔗 URI: $($playlist.uri)" -ForegroundColor DarkGray
             Write-Host ""
         }

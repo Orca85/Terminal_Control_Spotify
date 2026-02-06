@@ -795,20 +795,25 @@ function playlists {
         }
         # Store playlists in session for smart numbering
         Set-SessionPlaylists -Playlists $playlistsResponse.items
+        # Get terminal width for truncation
+        $termWidth = try { $Host.UI.RawUI.WindowSize.Width } catch { 80 }
+        if ($termWidth -lt 40) { $termWidth = 40 }
+        $maxNameLen = $termWidth - 6  # account for "XX. " prefix + margin
+
         Write-Host "📚 Your Playlists:" -ForegroundColor Cyan
         Write-Host ""
         $i = 1
         foreach ($playlist in $playlistsResponse.items) {
             $trackCount = $playlist.tracks.total
             $owner = $playlist.owner.display_name
-            # Need to get current user ID for comparison
-            # This is a general improvement: centralize current user info.
-            # For now, rely on first item owner ID for comparison if available.
             $isOwn = $playlist.owner.id -eq $playlistsResponse.items[0].owner.id
             $ownerText = if ($isOwn) { "You" } else { $owner }
-            Write-Host "$i. $($playlist.name)" -ForegroundColor White
+            $nameText = "$i. $($playlist.name)"
+            if ($nameText.Length -gt $maxNameLen) {
+                $nameText = $nameText.Substring(0, $maxNameLen - 3) + "..."
+            }
+            Write-Host $nameText -ForegroundColor White
             Write-Host "   $trackCount tracks • by $ownerText" -ForegroundColor Gray
-            Write-Host "   URI: $($playlist.uri)" -ForegroundColor Gray
             Write-Host ""
             $i++
         }
