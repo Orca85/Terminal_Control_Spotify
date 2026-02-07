@@ -2134,6 +2134,7 @@ Set-Alias -Name sh -Value shuffle -Force -ErrorAction SilentlyContinue
 Set-Alias -Name rep -Value repeat -Force -ErrorAction SilentlyContinue
 Set-Alias -Name tr -Value transfer -Force -ErrorAction SilentlyContinue
 Set-Alias -Name q -Value queue -Force -ErrorAction SilentlyContinue
+Set-Alias -Name pq -Value play-queue -Force -ErrorAction SilentlyContinue
 Set-Alias -Name pl -Value playlists -Force -ErrorAction SilentlyContinue
 
 # Help aliases

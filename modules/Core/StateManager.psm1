@@ -15,6 +15,12 @@ $script:SessionAlbums = @()
 # Stores playlist results from the 'playlists' command
 $script:SessionPlaylists = @()
 
+# Stores queue tracks from the 'queue' command
+$script:SessionQueue = @()
+
+# Tracks what the last numbered list was (playlists, search, queue, albums)
+$script:LastListContext = ""
+
 
 # --- Public Functions ---
 
@@ -68,6 +74,29 @@ function Set-SessionPlaylists {
     $script:SessionPlaylists = $Playlists
 }
 
+# --- Queue State Management ---
+
+function Get-SessionQueue {
+    return $script:SessionQueue
+}
+
+function Set-SessionQueue {
+    param($Queue)
+    $script:SessionQueue = $Queue
+}
+
+
+# --- List Context Management ---
+
+function Get-LastListContext {
+    return $script:LastListContext
+}
+
+function Set-LastListContext {
+    param([string]$Context)
+    $script:LastListContext = $Context
+}
+
 
 # --- Module Exports ---
 
@@ -80,5 +109,9 @@ Export-ModuleMember -Function @(
     'Get-SessionAlbums',
     'Set-SessionAlbums',
     'Get-SessionPlaylists',
-    'Set-SessionPlaylists'
+    'Set-SessionPlaylists',
+    'Get-SessionQueue',
+    'Set-SessionQueue',
+    'Get-LastListContext',
+    'Set-LastListContext'
 )

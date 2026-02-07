@@ -938,7 +938,7 @@ function Show-UnknownCommand {
     
     $availableCommands = @(
         "spotify", "next", "pause", "play", "previous", "seek", "volume", "shuffle", "repeat",
-        "devices", "transfer", "search", "queue", "playlists", "liked", "recent", "save", "unsave",
+        "devices", "transfer", "search", "queue", "play-queue", "playlists", "liked", "recent", "save", "unsave",
         "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quit", "exit"
     )
     
@@ -1168,20 +1168,24 @@ function Invoke-HelpCommand {
             Write-Host "  - Results show URIs that can be used with /play and /queue commands" -ForegroundColor Gray
         }
         "queue" {
-            Write-Host "COMMAND: /queue <track_uri>" -ForegroundColor Cyan
-            Write-Host "==========================" -ForegroundColor Cyan
-            Write-Host "Adds a track to the playback queue." -ForegroundColor White
+            Write-Host "COMMAND: /queue" -ForegroundColor Cyan
+            Write-Host "==============" -ForegroundColor Cyan
+            Write-Host "Show and manage the playback queue." -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
-            Write-Host "  /queue <uri>      - Add track to queue using Spotify URI" -ForegroundColor White
+            Write-Host "  /queue              - Show current queue with numbered tracks" -ForegroundColor White
+            Write-Host "  /queue <number>     - Add search result #N to queue" -ForegroundColor White
+            Write-Host "  /queue <uri>        - Add track to queue by Spotify URI" -ForegroundColor White
+            Write-Host ""
+            Write-Host "SMART NUMBERS:" -ForegroundColor Yellow
+            Write-Host "  After running /queue, tracks are numbered." -ForegroundColor Gray
+            Write-Host "  Use 'play-queue <number>' or 'pq <number>' to jump to a track." -ForegroundColor Gray
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  /queue spotify:track:4iV5W9uYEdYUVa79Axb7Rh" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "HOW TO GET TRACK URI:" -ForegroundColor Yellow
-            Write-Host "  1. Use /search to find tracks" -ForegroundColor Gray
-            Write-Host "  2. Copy the URI from search results" -ForegroundColor Gray
-            Write-Host "  3. Use it with /queue command" -ForegroundColor Gray
+            Write-Host "  /queue          - Show queue" -ForegroundColor Gray
+            Write-Host "  /queue 2        - Add search result #2" -ForegroundColor Gray
+            Write-Host "  play-queue 3    - Play queue track #3" -ForegroundColor Gray
+            Write-Host "  pq 1            - Play next in queue" -ForegroundColor Gray
             Write-Host ""
             Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
             Write-Host "  - Spotify Premium subscription" -ForegroundColor Gray
@@ -3542,6 +3546,9 @@ function Invoke-SpotifyCommand {
         "/search" { Invoke-SearchCommand $args }
         "queue" { Invoke-QueueCommand $args }
         "/queue" { Invoke-QueueCommand $args }
+        "play-queue" { play-queue @args }
+        "/play-queue" { play-queue @args }
+        "pq" { play-queue @args }
         "playlists" { Invoke-PlaylistsCommand }
         "/playlists" { Invoke-PlaylistsCommand }
         "liked" { Invoke-LikedCommand }

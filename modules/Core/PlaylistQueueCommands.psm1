@@ -107,6 +107,9 @@ function Show-SpotifyQueue {
 
         # Show queued tracks
         if ($queueResponse.queue -and $queueResponse.queue.Count -gt 0) {
+            # Store queue in session for smart numbering
+            Set-SessionQueue -Queue $queueResponse.queue
+
             Write-Host "📋 Up Next ($($queueResponse.queue.Count) tracks)" -ForegroundColor Yellow
             Write-Host ""
 
@@ -169,10 +172,12 @@ function Show-SpotifyQueue {
 
             Write-Host ""
             Write-Host "💡 Commands:" -ForegroundColor Yellow
-            Write-Host "   queue <number>  - Add track from search to queue" -ForegroundColor Gray
-            Write-Host "   next            - Skip to next track" -ForegroundColor Gray
+            Write-Host "   play-queue <number>  - Play track #N from queue" -ForegroundColor Gray
+            Write-Host "   queue <number>       - Add track from search to queue" -ForegroundColor Gray
+            Write-Host "   next                 - Skip to next track" -ForegroundColor Gray
 
         } else {
+            Set-SessionQueue -Queue @()
             Write-Host "📭 Queue is empty" -ForegroundColor Yellow
             Write-Host ""
             Write-Host "💡 Use 'search' then 'queue <number>' to add tracks" -ForegroundColor Cyan
@@ -817,44 +822,42 @@ function playlists {
             Write-Host ""
             $i++
         }
-        Write-Host "💡 Use 'play-playlist <number>' to play a playlist" -ForegroundColor Cyan
-        Write-Host "💡 Use 'play-playlist <number> <track>' to play specific track" -ForegroundColor Cyan
-        Write-Host "💡 Use 'queue-playlist <number>' to add playlist to queue" -ForegroundColor Cyan
-        Write-Host "🎮 Press Enter for interactive navigation mode..." -ForegroundColor Cyan
-        # Check if user wants to enter interactive mode
-        $capabilities = Get-TerminalCapabilities
-        if ($capabilities.SupportsInteractiveInput) {
-            try {
-                $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                if ($key.VirtualKeyCode -eq 13) { # Enter key
-                    # Prepare playlist items for interactive mode
-                    $interactiveItems = @()
-                    $i = 0
-                    foreach ($playlist in $playlistsResponse.items) {
-                        $trackCount = $playlist.tracks.total
-                        $owner = $playlist.owner.display_name
-                        $isOwn = $playlist.owner.id -eq $playlistsResponse.items[0].owner.id
-                        $ownerText = if ($isOwn) { "You" } else { $owner }
-                        $interactiveItems += [PSCustomObject]@{
-                            name = $playlist.name
-                            uri = $playlist.uri
-                            id = $playlist.id
-                            type = "playlist"
-                            search_type = "playlist"
-                            description = "$trackCount tracks • by $ownerText"
-                            tracks = @{ total = $trackCount }
-                            owner = $playlist.owner
-                        }
-                        $i++
+        Write-Host "Enter number to play, 'q' + number to queue, or Enter for interactive mode" -ForegroundColor Cyan
+        $input = Read-Host "▶️"
+        $input = $input.Trim()
+        if ($input -match '^\d+$') {
+            # Number entered - play that playlist
+            play-playlist -PlaylistNumber ([int]$input)
+        }
+        elseif ($input -match '^q\s*(\d+)$') {
+            # q + number - queue that playlist
+            queue-playlist -PlaylistNumber ([int]$Matches[1])
+        }
+        elseif ($input -eq '') {
+            # Enter pressed - interactive mode
+            $capabilities = Get-TerminalCapabilities
+            if ($capabilities.SupportsInteractiveInput) {
+                $interactiveItems = @()
+                foreach ($playlist in $playlistsResponse.items) {
+                    $trackCount = $playlist.tracks.total
+                    $owner = $playlist.owner.display_name
+                    $isOwn = $playlist.owner.id -eq $playlistsResponse.items[0].owner.id
+                    $ownerText = if ($isOwn) { "You" } else { $owner }
+                    $interactiveItems += [PSCustomObject]@{
+                        name = $playlist.name
+                        uri = $playlist.uri
+                        id = $playlist.id
+                        type = "playlist"
+                        search_type = "playlist"
+                        description = "$trackCount tracks • by $ownerText"
+                        tracks = @{ total = $trackCount }
+                        owner = $playlist.owner
                     }
-                    Start-InteractiveMode -Items $interactiveItems -Title "Your Playlists"
                 }
-            } catch {
-                # If ReadKey fails, just continue without interactive mode
-                Write-Host "ℹ️ Interactive mode not available in this terminal" -ForegroundColor Yellow
+                Start-InteractiveMode -Items $interactiveItems -Title "Your Playlists"
+            } else {
+                Write-Host "Interactive mode not supported in this terminal" -ForegroundColor Yellow
             }
-        } else {
-            Write-Host "ℹ️ Interactive mode not supported in this terminal" -ForegroundColor Yellow
         }
     }
     catch {
@@ -1054,6 +1057,85 @@ function queue-playlist {
         }
     }
 }
+function play-queue {
+    <#
+    .SYNOPSIS
+    Play a specific track from the queue by number
+    .DESCRIPTION
+    Uses smart numbering from the last 'queue' command to jump to a
+    specific track. Skips forward in the queue to reach the target position.
+    .PARAMETER TrackNumber
+    The number of the track from the queue display
+    .EXAMPLE
+    play-queue 3
+    Skip to and play track #3 from the queue
+    .EXAMPLE
+    pq 1
+    Play the next track in queue (alias)
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [int]$TrackNumber
+    )
+
+    try {
+        $sessionQueue = Get-SessionQueue
+
+        if (-not $sessionQueue -or $sessionQueue.Count -eq 0) {
+            Write-Host "❌ No queue in session. Run 'queue' first to see the queue." -ForegroundColor Red
+            return
+        }
+
+        if ($TrackNumber -lt 1 -or $TrackNumber -gt $sessionQueue.Count) {
+            Write-Host "❌ Invalid track number. Use 1-$($sessionQueue.Count)" -ForegroundColor Red
+            return
+        }
+
+        $targetTrack = $sessionQueue[$TrackNumber - 1]
+        $targetName = $targetTrack.name
+        $isPodcast = $targetTrack.type -eq "episode"
+
+        if ($isPodcast) {
+            $displayInfo = "$targetName (from $($targetTrack.show.name))"
+        } else {
+            $artists = ($targetTrack.artists | ForEach-Object { $_.name }) -join ", "
+            $displayInfo = "$targetName by $artists"
+        }
+
+        Write-Host "⏭️ Skipping to queue track #$TrackNumber..." -ForegroundColor Cyan
+
+        # Skip forward N times to reach the target position
+        for ($i = 0; $i -lt $TrackNumber; $i++) {
+            Invoke-SpotifyApi -Method POST -Path "/me/player/next" | Out-Null
+            Start-Sleep -Milliseconds 200
+        }
+
+        if ($isPodcast) {
+            Write-Host "▶️ Playing: 🎙️ $displayInfo" -ForegroundColor Magenta
+        } else {
+            Write-Host "▶️ Playing: 🎵 $displayInfo" -ForegroundColor Green
+        }
+
+        Write-Host "💡 Run 'queue' to refresh the queue list" -ForegroundColor Gray
+
+    } catch {
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "401|Unauthorized|AUTHENTICATION_ERROR") {
+            Write-Host "🔐 Authentication Error: Your Spotify session has expired." -ForegroundColor Red
+            Write-Host "💡 Solution: Run .\spotifyCLI.ps1 to re-authenticate" -ForegroundColor Yellow
+        }
+        elseif ($errorMessage -match "403") {
+            Write-Host "❌ This feature requires Spotify Premium." -ForegroundColor Red
+        }
+        elseif ($errorMessage -match "404") {
+            Write-Host "❌ No active device. Start Spotify on a device first." -ForegroundColor Red
+        }
+        else {
+            Write-Host "❌ Could not skip to track: $errorMessage" -ForegroundColor Red
+        }
+    }
+}
+
 function liked {
     <#
     .SYNOPSIS
