@@ -939,7 +939,7 @@ function Show-UnknownCommand {
     $availableCommands = @(
         "spotify", "next", "pause", "play", "previous", "seek", "volume", "shuffle", "repeat",
         "devices", "transfer", "search", "queue", "play-queue", "playlists", "liked", "recent", "save", "unsave",
-        "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "quit", "exit"
+        "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "peak", "quit", "exit"
     )
     
     Write-Host "❓ Unknown Command: $Command" -ForegroundColor Red
@@ -1013,6 +1013,7 @@ function Invoke-HelpCommand {
         Write-Host ""
         Write-Host "FUN:" -ForegroundColor Yellow
         Write-Host "  /quiz [rounds]     - Music quiz: guess songs from your liked tracks" -ForegroundColor White
+        Write-Host "  /peak              - Track insights dashboard (popularity, genres, etc.)" -ForegroundColor White
         Write-Host ""
         Write-Host "SYSTEM COMMANDS:" -ForegroundColor Yellow
         Write-Host "  /config [key] [value] - View/modify configuration" -ForegroundColor White
@@ -1466,6 +1467,27 @@ function Invoke-HelpCommand {
             Write-Host "  - VS Code integrated terminal" -ForegroundColor Gray
             Write-Host "  - Falls back to new window if split not supported" -ForegroundColor Gray
         }
+        "peak" {
+            Write-Host "COMMAND: /peak" -ForegroundColor Cyan
+            Write-Host "==============" -ForegroundColor Cyan
+            Write-Host "Track insights dashboard for the currently playing track." -ForegroundColor White
+            Write-Host ""
+            Write-Host "USAGE:" -ForegroundColor Yellow
+            Write-Host "  /peak              - Open the Peak Dashboard window" -ForegroundColor White
+            Write-Host ""
+            Write-Host "METRICS SHOWN:" -ForegroundColor Yellow
+            Write-Host "  Track Popularity  - How popular the track is (0-100)" -ForegroundColor Gray
+            Write-Host "  Artist Popularity - How popular the artist is (0-100)" -ForegroundColor Gray
+            Write-Host "  Followers         - Artist follower count" -ForegroundColor Gray
+            Write-Host "  Duration          - Track length" -ForegroundColor Gray
+            Write-Host "  Album             - Album name, release date, track number" -ForegroundColor Gray
+            Write-Host "  Genres            - Artist genres" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "FEATURES:" -ForegroundColor Yellow
+            Write-Host "  - Auto-updates when track changes" -ForegroundColor Gray
+            Write-Host "  - Mini-graph showing popularity of last 10 tracks" -ForegroundColor Gray
+            Write-Host "  - Always-on-top dark-themed window" -ForegroundColor Gray
+        }
         "quiz" {
             Write-Host "COMMAND: /quiz [rounds]" -ForegroundColor Cyan
             Write-Host "======================" -ForegroundColor Cyan
@@ -1515,7 +1537,7 @@ function Invoke-HelpCommand {
                 "spotify", "seek", "volume", "shuffle", "repeat",
                 "devices", "transfer", "search", "queue", "play",
                 "playlists", "liked", "recent", "save", "unsave",
-                "config", "config-live", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "quit"
+                "config", "config-live", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "peak", "quit"
             )
             $availableCommands | ForEach-Object {
                 Write-Host "  /help $_" -ForegroundColor Gray
@@ -3608,6 +3630,24 @@ function Invoke-SpotifyCommand {
         "/sidecar" { Invoke-SidecarCommand $args }
         "lyrics" { Invoke-LyricsCommand $args }
         "/lyrics" { Invoke-LyricsCommand $args }
+        "peak" {
+            $peakModulePath = Join-Path $PSScriptRoot "modules\UI\PeakDashboard.psm1"
+            if (Test-Path $peakModulePath) {
+                Import-Module $peakModulePath -Force -ErrorAction SilentlyContinue
+                Show-PeakDashboard
+            } else {
+                Write-Host "Peak Dashboard module not found" -ForegroundColor Red
+            }
+        }
+        "/peak" {
+            $peakModulePath = Join-Path $PSScriptRoot "modules\UI\PeakDashboard.psm1"
+            if (Test-Path $peakModulePath) {
+                Import-Module $peakModulePath -Force -ErrorAction SilentlyContinue
+                Show-PeakDashboard
+            } else {
+                Write-Host "Peak Dashboard module not found" -ForegroundColor Red
+            }
+        }
         "quiz" { Start-MusicQuiz $args }
         "/quiz" { Start-MusicQuiz $args }
         "quit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
