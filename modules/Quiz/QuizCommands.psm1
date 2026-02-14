@@ -1,4 +1,4 @@
-# Quiz Commands Module - Music Quiz using liked songs
+# Quiz Commands Module - Multiple Choice Music Quiz using liked songs
 
 function Get-QuizHighscore {
     param([int]$Rounds = 5)
@@ -43,12 +43,50 @@ function Save-QuizHighscore {
     $data | ConvertTo-Json | Set-Content $highscorePath -Encoding UTF8
 }
 
+function Get-ShuffledOptions {
+    param(
+        [Parameter(Mandatory)][string]$Correct,
+        [Parameter(Mandatory)][string[]]$DecoyPool,
+        [int]$Count = 3
+    )
+
+    # Filter out the correct answer and deduplicate
+    $available = $DecoyPool | Where-Object { $_ -ne $Correct } | Select-Object -Unique
+
+    # Pick random decoys
+    if ($available.Count -le $Count) {
+        $decoys = @($available)
+    }
+    else {
+        $decoys = @($available | Get-Random -Count $Count)
+    }
+
+    # Combine with correct answer and shuffle
+    $options = @($decoys) + @($Correct)
+    $shuffled = $options | Get-Random -Count $options.Count
+
+    # Find the index of the correct answer (1-based)
+    $correctIndex = -1
+    for ($i = 0; $i -lt $shuffled.Count; $i++) {
+        if ($shuffled[$i] -eq $Correct) {
+            $correctIndex = $i + 1
+            break
+        }
+    }
+
+    return @{
+        Options      = $shuffled
+        CorrectIndex = $correctIndex
+    }
+}
+
 function Start-QuizRound {
     param(
         [Parameter(Mandatory)]$Track,
         [int]$RoundNumber,
         [int]$TotalRounds,
-        [int]$Duration = 5
+        [Parameter(Mandatory)][string[]]$DecoyArtists,
+        [Parameter(Mandatory)][string[]]$DecoyTracks
     )
 
     $trackName = $Track.track.name
@@ -59,7 +97,7 @@ function Start-QuizRound {
     # Calculate random start position (avoid first/last 30s)
     if ($durationMs -gt 60000) {
         $minPos = 30000
-        $maxPos = $durationMs - 30000 - ($Duration * 1000)
+        $maxPos = $durationMs - 30000 - 8000  # leave room for up to 8s of playback
         if ($maxPos -lt $minPos) { $maxPos = $minPos }
         $positionMs = Get-Random -Minimum $minPos -Maximum ($maxPos + 1)
     }
@@ -71,7 +109,7 @@ function Start-QuizRound {
     Write-Host "  Round $RoundNumber/$TotalRounds" -ForegroundColor Cyan
     Write-Host "  Listening..." -ForegroundColor Yellow
 
-    # Play the snippet
+    # Play 3-second snippet for artist guess
     try {
         $body = @{
             uris        = @($trackUri)
@@ -84,87 +122,118 @@ function Start-QuizRound {
         return 0
     }
 
-    # Wait for the snippet duration
-    Start-Sleep -Seconds $Duration
+    Start-Sleep -Seconds 3
 
-    # Pause playback
+    # Pause for artist guess
     try {
         Invoke-SpotifyApi -Method PUT -Path "/me/player/pause" | Out-Null
     }
-    catch {
-        # Ignore pause errors
+    catch { }
+
+    # Phase 1: Artist multiple choice
+    $artistResult = Get-ShuffledOptions -Correct $artistName -DecoyPool $DecoyArtists
+    Write-Host ""
+    Write-Host "  Who is the artist?" -ForegroundColor White
+    for ($i = 0; $i -lt $artistResult.Options.Count; $i++) {
+        Write-Host "  $($i + 1). $($artistResult.Options[$i])" -ForegroundColor Gray
     }
 
-    # Ask for answer
-    Write-Host ""
-    $answer = Read-Host "  Guess the song (title or artist)"
+    $artistChoice = Read-Host "  >"
 
-    if ([string]::IsNullOrWhiteSpace($answer)) {
-        Write-Host "  No answer! It was: $trackName - $artistName" -ForegroundColor Red
+    if ([string]::IsNullOrWhiteSpace($artistChoice)) {
+        Write-Host "  No answer! It was: $artistName - $trackName" -ForegroundColor Red
         Write-Host ""
         return 0
     }
 
-    $answerLower = $answer.Trim().ToLower()
-    $trackLower = $trackName.ToLower()
-    $artistLower = $artistName.ToLower()
-
-    $points = 0
-    $matchDesc = @()
-
-    # Exact track name match
-    if ($answerLower -eq $trackLower) {
-        $points += 20
-        $matchDesc += "exact title match (20p)"
+    $choiceNum = 0
+    if (-not [int]::TryParse($artistChoice.Trim(), [ref]$choiceNum) -or $choiceNum -lt 1 -or $choiceNum -gt $artistResult.Options.Count) {
+        Write-Host "  Invalid choice! It was: $artistName - $trackName" -ForegroundColor Red
+        Write-Host ""
+        return 0
     }
-    # Exact artist match
-    elseif ($answerLower -eq $artistLower) {
-        $points += 10
-        $matchDesc += "exact artist match (10p)"
+
+    if ($choiceNum -ne $artistResult.CorrectIndex) {
+        Write-Host "  Wrong! It was: $artistName - $trackName" -ForegroundColor Red
+        Write-Host "  0 points this round." -ForegroundColor Gray
+        Write-Host ""
+        return 0
     }
-    # Partial matches
+
+    # Correct artist!
+    Write-Host "  Correct! +10 points" -ForegroundColor Green
+    $totalPoints = 10
+
+    # Phase 2: Play 5 more seconds, then ask for song title
+    Write-Host ""
+    Write-Host "  Listening to more..." -ForegroundColor Yellow
+
+    try {
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" | Out-Null
+    }
+    catch { }
+
+    Start-Sleep -Seconds 5
+
+    try {
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause" | Out-Null
+    }
+    catch { }
+
+    # Song title multiple choice
+    $songResult = Get-ShuffledOptions -Correct $trackName -DecoyPool $DecoyTracks
+    Write-Host ""
+    Write-Host "  What song is it?" -ForegroundColor White
+    for ($i = 0; $i -lt $songResult.Options.Count; $i++) {
+        Write-Host "  $($i + 1). $($songResult.Options[$i])" -ForegroundColor Gray
+    }
+
+    $songChoice = Read-Host "  >"
+
+    if ([string]::IsNullOrWhiteSpace($songChoice)) {
+        Write-Host "  No answer! It was: $trackName" -ForegroundColor Red
+        Write-Host "  $totalPoints points this round." -ForegroundColor Gray
+        Write-Host ""
+        return $totalPoints
+    }
+
+    $songNum = 0
+    if (-not [int]::TryParse($songChoice.Trim(), [ref]$songNum) -or $songNum -lt 1 -or $songNum -gt $songResult.Options.Count) {
+        Write-Host "  Invalid choice! It was: $trackName" -ForegroundColor Red
+        Write-Host "  $totalPoints points this round." -ForegroundColor Gray
+        Write-Host ""
+        return $totalPoints
+    }
+
+    if ($songNum -eq $songResult.CorrectIndex) {
+        $totalPoints += 10
+        Write-Host "  Correct! +10 points" -ForegroundColor Green
+    }
     else {
-        if ($trackLower -like "*$answerLower*" -or $answerLower -like "*$trackLower*") {
-            $points += 5
-            $matchDesc += "partial title match (5p)"
-        }
-        if ($artistLower -like "*$answerLower*" -or $answerLower -like "*$artistLower*") {
-            $points += 5
-            $matchDesc += "partial artist match (5p)"
-        }
+        Write-Host "  Wrong! It was: $trackName" -ForegroundColor Red
     }
 
-    if ($points -gt 0) {
-        Write-Host "  Correct! +$points points ($($matchDesc -join ', '))" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  Wrong!" -ForegroundColor Red
-    }
-    Write-Host "  Answer: $trackName - $artistName" -ForegroundColor Gray
-
-    return $points
+    Write-Host "  Total: $totalPoints/20 for this round!" -ForegroundColor Cyan
+    Write-Host ""
+    return $totalPoints
 }
 
 function Start-MusicQuiz {
     [CmdletBinding()]
     param(
         [Parameter(Position = 0)]
-        [int]$Rounds = 5,
-
-        [int]$Duration = 5
+        [int]$Rounds = 5
     )
 
     # Validate parameters
     if ($Rounds -lt 1) { $Rounds = 1 }
     if ($Rounds -gt 20) { $Rounds = 20 }
-    if ($Duration -lt 2) { $Duration = 2 }
-    if ($Duration -gt 15) { $Duration = 15 }
 
     Write-Host ""
     Write-Host "  MUSIC QUIZ" -ForegroundColor Cyan
     Write-Host "  ==========" -ForegroundColor Cyan
-    Write-Host "  Guess songs from your liked tracks!" -ForegroundColor White
-    Write-Host "  Rounds: $Rounds | Snippet: ${Duration}s" -ForegroundColor Gray
+    Write-Host "  Multiple choice quiz from your liked tracks!" -ForegroundColor White
+    Write-Host "  Rounds: $Rounds | Artist (3s) + Song (5s)" -ForegroundColor Gray
     Write-Host ""
 
     # Save current playback state to restore later
@@ -187,18 +256,29 @@ function Start-MusicQuiz {
         return
     }
 
+    # Need extra tracks for decoys
+    $totalToFetch = $Rounds + 12
+    if ($totalLiked -lt $totalToFetch) {
+        $totalToFetch = [Math]::Min($totalLiked, $Rounds + $totalLiked)
+    }
+
     if ($totalLiked -lt $Rounds) {
         Write-Host "  You only have $totalLiked liked songs. Need at least $Rounds for the quiz." -ForegroundColor Red
         return
     }
 
-    Write-Host "  Found $totalLiked liked songs. Picking $Rounds random tracks..." -ForegroundColor Gray
+    if ($totalLiked -lt 4) {
+        Write-Host "  You need at least 4 liked songs for multiple choice. You have $totalLiked." -ForegroundColor Red
+        return
+    }
 
-    # Pick random tracks (unique offsets)
+    Write-Host "  Found $totalLiked liked songs. Picking tracks..." -ForegroundColor Gray
+
+    # Pick random tracks (unique offsets) - fetch extra for decoys
     $usedOffsets = @()
-    $quizTracks = @()
+    $allTracks = @()
 
-    for ($i = 0; $i -lt $Rounds; $i++) {
+    for ($i = 0; $i -lt $totalToFetch; $i++) {
         $maxAttempts = 50
         $attempt = 0
         do {
@@ -211,20 +291,32 @@ function Start-MusicQuiz {
         try {
             $result = Invoke-SpotifyApi -Method GET -Path "/me/tracks" -Query @{ limit = 1; offset = $offset }
             if ($result.items -and $result.items.Count -gt 0) {
-                $quizTracks += $result.items[0]
+                $allTracks += $result.items[0]
             }
         }
         catch {
-            Write-Host "  Warning: Could not fetch track at offset $offset, skipping..." -ForegroundColor Yellow
+            # Skip failed fetches
         }
     }
 
-    if ($quizTracks.Count -eq 0) {
-        Write-Host "  Could not fetch any tracks for the quiz." -ForegroundColor Red
+    if ($allTracks.Count -lt 4) {
+        Write-Host "  Could not fetch enough tracks for the quiz." -ForegroundColor Red
         return
     }
 
+    # Split into quiz tracks and build decoy pools from ALL tracks
+    $quizTracks = @($allTracks | Select-Object -First $Rounds)
     $actualRounds = $quizTracks.Count
+
+    # Build decoy pools from all fetched tracks (including quiz tracks)
+    $decoyArtists = @($allTracks | ForEach-Object {
+        ($_.track.artists | ForEach-Object { $_.name }) -join ", "
+    } | Select-Object -Unique)
+
+    $decoyTrackNames = @($allTracks | ForEach-Object {
+        $_.track.name
+    } | Select-Object -Unique)
+
     Write-Host ""
     Write-Host "  Ready! $actualRounds rounds. Listen carefully!" -ForegroundColor Green
     Write-Host "  Press Enter to start..." -ForegroundColor Gray
@@ -235,7 +327,7 @@ function Start-MusicQuiz {
     $maxScore = $actualRounds * 20
 
     for ($i = 0; $i -lt $actualRounds; $i++) {
-        $points = Start-QuizRound -Track $quizTracks[$i] -RoundNumber ($i + 1) -TotalRounds $actualRounds -Duration $Duration
+        $points = Start-QuizRound -Track $quizTracks[$i] -RoundNumber ($i + 1) -TotalRounds $actualRounds -DecoyArtists $decoyArtists -DecoyTracks $decoyTrackNames
         $totalScore += $points
     }
 
@@ -295,4 +387,4 @@ function Start-MusicQuiz {
 
 # Export and alias
 New-Alias -Name 'quiz' -Value 'Start-MusicQuiz' -Force
-Export-ModuleMember -Function 'Start-MusicQuiz' -Alias 'quiz'
+Export-ModuleMember -Function 'Start-MusicQuiz', 'Get-ShuffledOptions' -Alias 'quiz'

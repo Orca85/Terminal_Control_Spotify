@@ -57,7 +57,8 @@ param(
     [string]$SplitDirection = "right",
     [ValidateSet("detailed", "compact", "minimal")]
     [string]$LiveMode = "detailed",
-    [string]$Setlist = ""
+    [string]$Setlist = "",
+    [int]$Quiz = 0
 )
 
 #region Konfiguration
@@ -1015,7 +1016,7 @@ function Invoke-HelpCommand {
         Write-Host "  /sidecar [options] - Launch CLI in split window/sidecar mode" -ForegroundColor White
         Write-Host ""
         Write-Host "FUN:" -ForegroundColor Yellow
-        Write-Host "  /quiz [rounds]     - Music quiz: guess songs from your liked tracks" -ForegroundColor White
+        Write-Host "  /quiz [rounds]     - Multiple choice quiz: artist + song from liked tracks" -ForegroundColor White
         Write-Host "  /peak              - Track insights dashboard (popularity, genres, etc.)" -ForegroundColor White
         Write-Host "  /setlist <artist>  - Concert setlists + create Spotify playlist" -ForegroundColor White
         Write-Host ""
@@ -1520,30 +1521,31 @@ function Invoke-HelpCommand {
         "quiz" {
             Write-Host "COMMAND: /quiz [rounds]" -ForegroundColor Cyan
             Write-Host "======================" -ForegroundColor Cyan
-            Write-Host "Music quiz! Guess songs from short snippets of your liked tracks." -ForegroundColor White
+            Write-Host "Multiple choice music quiz from your liked tracks!" -ForegroundColor White
             Write-Host ""
             Write-Host "USAGE:" -ForegroundColor Yellow
             Write-Host "  /quiz             - Start a 5-round quiz (default)" -ForegroundColor White
             Write-Host "  /quiz <N>         - Start a quiz with N rounds (1-20)" -ForegroundColor White
             Write-Host ""
             Write-Host "EXAMPLES:" -ForegroundColor Yellow
-            Write-Host "  /quiz             - Play 5 rounds with 5-second snippets" -ForegroundColor Gray
+            Write-Host "  /quiz             - Play 5 rounds" -ForegroundColor Gray
             Write-Host "  /quiz 10          - Play 10 rounds" -ForegroundColor Gray
             Write-Host ""
-            Write-Host "SCORING:" -ForegroundColor Yellow
-            Write-Host "  Exact title match:   20 points" -ForegroundColor Gray
-            Write-Host "  Exact artist match:  10 points" -ForegroundColor Gray
-            Write-Host "  Partial match:        5 points" -ForegroundColor Gray
-            Write-Host ""
             Write-Host "HOW IT WORKS:" -ForegroundColor Yellow
-            Write-Host "  - Picks random songs from your liked tracks" -ForegroundColor Gray
-            Write-Host "  - Plays a 5-second snippet from the middle of each song" -ForegroundColor Gray
-            Write-Host "  - You type your guess (song title or artist name)" -ForegroundColor Gray
-            Write-Host "  - Highscores are saved per round count" -ForegroundColor Gray
+            Write-Host "  1. Listen to a 3-second snippet" -ForegroundColor Gray
+            Write-Host "  2. Pick the artist from 4 choices (10 points)" -ForegroundColor Gray
+            Write-Host "  3. If correct, listen to 5 more seconds" -ForegroundColor Gray
+            Write-Host "  4. Pick the song title from 4 choices (10 points)" -ForegroundColor Gray
+            Write-Host "  Wrong artist = 0 points, skip to next round" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "SCORING:" -ForegroundColor Yellow
+            Write-Host "  Correct artist:  10 points" -ForegroundColor Gray
+            Write-Host "  Correct song:    10 points (only if artist was correct)" -ForegroundColor Gray
+            Write-Host "  Max per round:   20 points" -ForegroundColor Gray
             Write-Host ""
             Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
             Write-Host "  - Active Spotify device" -ForegroundColor Gray
-            Write-Host "  - At least as many liked songs as quiz rounds" -ForegroundColor Gray
+            Write-Host "  - At least 4 liked songs (more = better decoys)" -ForegroundColor Gray
         }
         "quit" {
             Write-Host "COMMAND: /quit" -ForegroundColor Cyan
@@ -3819,6 +3821,18 @@ if ($Setlist) {
         Invoke-SetlistCommand $Setlist
     } else {
         Write-Host "Setlist module not found" -ForegroundColor Red
+    }
+    exit 0
+}
+
+# Handle quiz launch
+if ($Quiz -gt 0) {
+    $quizModulePath = Join-Path $PSScriptRoot "modules\Quiz\QuizCommands.psm1"
+    if (Test-Path $quizModulePath) {
+        Import-Module $quizModulePath -Force -ErrorAction SilentlyContinue
+        Start-MusicQuiz $Quiz
+    } else {
+        Write-Host "Quiz module not found" -ForegroundColor Red
     }
     exit 0
 }
