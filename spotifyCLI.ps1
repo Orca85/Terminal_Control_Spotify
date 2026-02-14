@@ -56,7 +56,8 @@ param(
     [ValidateSet("right", "down", "left", "up")]
     [string]$SplitDirection = "right",
     [ValidateSet("detailed", "compact", "minimal")]
-    [string]$LiveMode = "detailed"
+    [string]$LiveMode = "detailed",
+    [string]$Setlist = ""
 )
 
 #region Konfiguration
@@ -86,7 +87,9 @@ $Scopes = @(
     "user-library-read",           # For liked songs
     "user-library-modify",         # For save/unsave
     "user-read-recently-played",   # For recent tracks
-    "user-top-read"               # For enhanced features
+    "user-top-read",              # For enhanced features
+    "playlist-modify-public",      # For creating public playlists
+    "playlist-modify-private"      # For creating private playlists
 ) -join " "
 
 # Lagring av tokens och konfiguration
@@ -939,7 +942,7 @@ function Show-UnknownCommand {
     $availableCommands = @(
         "spotify", "next", "pause", "play", "previous", "seek", "volume", "shuffle", "repeat",
         "devices", "transfer", "search", "queue", "play-queue", "playlists", "liked", "recent", "save", "unsave",
-        "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "peak", "quit", "exit"
+        "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "peak", "setlist", "quit", "exit"
     )
     
     Write-Host "❓ Unknown Command: $Command" -ForegroundColor Red
@@ -1014,6 +1017,7 @@ function Invoke-HelpCommand {
         Write-Host "FUN:" -ForegroundColor Yellow
         Write-Host "  /quiz [rounds]     - Music quiz: guess songs from your liked tracks" -ForegroundColor White
         Write-Host "  /peak              - Track insights dashboard (popularity, genres, etc.)" -ForegroundColor White
+        Write-Host "  /setlist <artist>  - Concert setlists + create Spotify playlist" -ForegroundColor White
         Write-Host ""
         Write-Host "SYSTEM COMMANDS:" -ForegroundColor Yellow
         Write-Host "  /config [key] [value] - View/modify configuration" -ForegroundColor White
@@ -1488,6 +1492,31 @@ function Invoke-HelpCommand {
             Write-Host "  - Mini-graph showing popularity of last 10 tracks" -ForegroundColor Gray
             Write-Host "  - Always-on-top dark-themed window" -ForegroundColor Gray
         }
+        "setlist" {
+            Write-Host "COMMAND: /setlist <artist>" -ForegroundColor Cyan
+            Write-Host "========================" -ForegroundColor Cyan
+            Write-Host "Find concert setlists and create Spotify playlists from them." -ForegroundColor White
+            Write-Host ""
+            Write-Host "USAGE:" -ForegroundColor Yellow
+            Write-Host "  /setlist <artist>  - Search for recent concerts by artist" -ForegroundColor White
+            Write-Host ""
+            Write-Host "EXAMPLES:" -ForegroundColor Yellow
+            Write-Host "  /setlist Tame Impala    - Find Tame Impala's recent setlists" -ForegroundColor Gray
+            Write-Host "  /setlist Metallica      - Find Metallica's recent setlists" -ForegroundColor Gray
+            Write-Host "  /setlist Taylor Swift   - Find Taylor Swift's recent setlists" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "HOW IT WORKS:" -ForegroundColor Yellow
+            Write-Host "  1. Searches setlist.fm for the artist's recent concerts" -ForegroundColor Gray
+            Write-Host "  2. Shows up to 5 concerts with venue, date, and song count" -ForegroundColor Gray
+            Write-Host "  3. Pick a concert to see the full setlist" -ForegroundColor Gray
+            Write-Host "  4. Optionally create a Spotify playlist from the setlist" -ForegroundColor Gray
+            Write-Host "  5. Matched songs are added, missing ones are reported" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "SETUP:" -ForegroundColor Yellow
+            Write-Host "  Requires a free setlist.fm API key:" -ForegroundColor Gray
+            Write-Host "  1. Register at https://api.setlist.fm" -ForegroundColor Gray
+            Write-Host "  2. Add to .env: SETLISTFM_API_KEY=your_key_here" -ForegroundColor Gray
+        }
         "quiz" {
             Write-Host "COMMAND: /quiz [rounds]" -ForegroundColor Cyan
             Write-Host "======================" -ForegroundColor Cyan
@@ -1537,7 +1566,7 @@ function Invoke-HelpCommand {
                 "spotify", "seek", "volume", "shuffle", "repeat",
                 "devices", "transfer", "search", "queue", "play",
                 "playlists", "liked", "recent", "save", "unsave",
-                "config", "config-live", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "peak", "quit"
+                "config", "config-live", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "peak", "setlist", "quit"
             )
             $availableCommands | ForEach-Object {
                 Write-Host "  /help $_" -ForegroundColor Gray
@@ -3650,6 +3679,24 @@ function Invoke-SpotifyCommand {
         }
         "quiz" { Start-MusicQuiz $args }
         "/quiz" { Start-MusicQuiz $args }
+        "setlist" {
+            $setlistModulePath = Join-Path $PSScriptRoot "modules\Core\SetlistCommands.psm1"
+            if (Test-Path $setlistModulePath) {
+                Import-Module $setlistModulePath -Force -ErrorAction SilentlyContinue
+                Invoke-SetlistCommand $args
+            } else {
+                Write-Host "Setlist module not found" -ForegroundColor Red
+            }
+        }
+        "/setlist" {
+            $setlistModulePath = Join-Path $PSScriptRoot "modules\Core\SetlistCommands.psm1"
+            if (Test-Path $setlistModulePath) {
+                Import-Module $setlistModulePath -Force -ErrorAction SilentlyContinue
+                Invoke-SetlistCommand $args
+            } else {
+                Write-Host "Setlist module not found" -ForegroundColor Red
+            }
+        }
         "quit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
         "/quit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
         "exit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
@@ -3756,11 +3803,23 @@ if ($Sidecar -or $NewWindow) {
 if ($Live) {
     Write-Host "🎵 Starting Spotify CLI in live display mode..." -ForegroundColor Cyan
     Write-Host ""
-    
+
     # Start live display immediately
     Invoke-LiveDisplayCommand $LiveMode
-    
+
     # Exit after live mode ends
+    exit 0
+}
+
+# Handle setlist launch
+if ($Setlist) {
+    $setlistModulePath = Join-Path $PSScriptRoot "modules\Core\SetlistCommands.psm1"
+    if (Test-Path $setlistModulePath) {
+        Import-Module $setlistModulePath -Force -ErrorAction SilentlyContinue
+        Invoke-SetlistCommand $Setlist
+    } else {
+        Write-Host "Setlist module not found" -ForegroundColor Red
+    }
     exit 0
 }
 

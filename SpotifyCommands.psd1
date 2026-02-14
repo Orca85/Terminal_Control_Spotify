@@ -20,7 +20,8 @@
         'modules\Core\SearchCommands.psm1',
         'modules\Core\PlaylistQueueCommands.psm1',
         'modules\Quiz\QuizCommands.psm1',
-        'modules\UI\PeakDashboard.psm1'
+        'modules\UI\PeakDashboard.psm1',
+        'modules\Core\SetlistCommands.psm1'
     )
     FunctionsToExport = @(
         'Show-SpotifyTrack',
@@ -61,9 +62,10 @@
         'Reset-SpotifyLiveFeaturesConfiguration',
         'Stop-SpotifyLiveFeatures',
         'Start-MusicQuiz',
-        'Show-PeakDashboard'
+        'Show-PeakDashboard',
+        'Invoke-SetlistCommand'
     )
-    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak')
+    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist')
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'LiveFeatures', 'Lyrics', 'Statistics')

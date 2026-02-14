@@ -807,6 +807,17 @@ function Start-Installation {
     # Steg 6: Uppdatera profil
     Update-PowerShellProfile
 
+    # Steg 6b: Lagg till projektmappen i PATH (for setlist, etc.)
+    $currentUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if ($currentUserPath -notlike "*$script:ProjectRoot*") {
+        if ($PSCmdlet.ShouldProcess($script:ProjectRoot, "Lagg till i PATH")) {
+            [Environment]::SetEnvironmentVariable('Path', "$currentUserPath;$script:ProjectRoot", 'User')
+            Write-InstallLog "La till projektmappen i PATH: $script:ProjectRoot" "SUCCESS"
+        }
+    } else {
+        Write-InstallLog "Projektmappen redan i PATH" "INFO"
+    }
+
     # Steg 7: Skapa alias (efter att modulen ar pa plats)
     # Ladda modulen forst
     try {
