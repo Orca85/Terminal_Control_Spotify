@@ -287,6 +287,13 @@ The CLI exports 98 functions and aliases, including 9 new live features commands
 | `queue-album` | -       | Add album to queue      | `queue-album 1`      |
 | `play-album`  | -       | Play album by number    | `play-album 1`       |
 
+#### 🎲 Fun & Games
+
+| Function          | Aliases | Description                              | Example    |
+| ----------------- | ------- | ---------------------------------------- | ---------- |
+| `Start-MusicQuiz` | `quiz`  | Guess songs from snippets of liked tracks | `quiz`     |
+|                   |         | Custom round count (1-20)                | `quiz 10`  |
+
 #### ⚙️ System & Configuration
 
 | Function            | Aliases                | Description             | Example                                  |
@@ -435,6 +442,22 @@ spotify --sidecar
 
 # Generate weekly statistics
 Get-SpotifyListeningStatistics -Period week
+```
+
+### Music Quiz
+
+```powershell
+# Start a 5-round quiz (default)
+quiz
+
+# Play 10 rounds
+quiz 10
+
+# Scoring:
+# Exact title match = 20 pts
+# Exact artist match = 10 pts
+# Partial match = 5 pts
+# Highscores saved automatically!
 ```
 
 ### Basic Usage

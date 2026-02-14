@@ -939,7 +939,7 @@ function Show-UnknownCommand {
     $availableCommands = @(
         "spotify", "next", "pause", "play", "previous", "seek", "volume", "shuffle", "repeat",
         "devices", "transfer", "search", "queue", "play-queue", "playlists", "liked", "recent", "save", "unsave",
-        "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quit", "exit"
+        "config", "help", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "quit", "exit"
     )
     
     Write-Host "❓ Unknown Command: $Command" -ForegroundColor Red
@@ -1010,6 +1010,9 @@ function Invoke-HelpCommand {
         Write-Host "LIVE FEATURES:" -ForegroundColor Yellow
         Write-Host "  /live [mode]       - Start live display mode (detailed/compact/minimal)" -ForegroundColor White
         Write-Host "  /sidecar [options] - Launch CLI in split window/sidecar mode" -ForegroundColor White
+        Write-Host ""
+        Write-Host "FUN:" -ForegroundColor Yellow
+        Write-Host "  /quiz [rounds]     - Music quiz: guess songs from your liked tracks" -ForegroundColor White
         Write-Host ""
         Write-Host "SYSTEM COMMANDS:" -ForegroundColor Yellow
         Write-Host "  /config [key] [value] - View/modify configuration" -ForegroundColor White
@@ -1463,6 +1466,34 @@ function Invoke-HelpCommand {
             Write-Host "  - VS Code integrated terminal" -ForegroundColor Gray
             Write-Host "  - Falls back to new window if split not supported" -ForegroundColor Gray
         }
+        "quiz" {
+            Write-Host "COMMAND: /quiz [rounds]" -ForegroundColor Cyan
+            Write-Host "======================" -ForegroundColor Cyan
+            Write-Host "Music quiz! Guess songs from short snippets of your liked tracks." -ForegroundColor White
+            Write-Host ""
+            Write-Host "USAGE:" -ForegroundColor Yellow
+            Write-Host "  /quiz             - Start a 5-round quiz (default)" -ForegroundColor White
+            Write-Host "  /quiz <N>         - Start a quiz with N rounds (1-20)" -ForegroundColor White
+            Write-Host ""
+            Write-Host "EXAMPLES:" -ForegroundColor Yellow
+            Write-Host "  /quiz             - Play 5 rounds with 5-second snippets" -ForegroundColor Gray
+            Write-Host "  /quiz 10          - Play 10 rounds" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "SCORING:" -ForegroundColor Yellow
+            Write-Host "  Exact title match:   20 points" -ForegroundColor Gray
+            Write-Host "  Exact artist match:  10 points" -ForegroundColor Gray
+            Write-Host "  Partial match:        5 points" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "HOW IT WORKS:" -ForegroundColor Yellow
+            Write-Host "  - Picks random songs from your liked tracks" -ForegroundColor Gray
+            Write-Host "  - Plays a 5-second snippet from the middle of each song" -ForegroundColor Gray
+            Write-Host "  - You type your guess (song title or artist name)" -ForegroundColor Gray
+            Write-Host "  - Highscores are saved per round count" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
+            Write-Host "  - Active Spotify device" -ForegroundColor Gray
+            Write-Host "  - At least as many liked songs as quiz rounds" -ForegroundColor Gray
+        }
         "quit" {
             Write-Host "COMMAND: /quit" -ForegroundColor Cyan
             Write-Host "=============" -ForegroundColor Cyan
@@ -1484,7 +1515,7 @@ function Invoke-HelpCommand {
                 "spotify", "seek", "volume", "shuffle", "repeat",
                 "devices", "transfer", "search", "queue", "play",
                 "playlists", "liked", "recent", "save", "unsave",
-                "config", "config-live", "history", "notifications", "auto-refresh", "live", "sidecar", "quit"
+                "config", "config-live", "history", "notifications", "auto-refresh", "live", "sidecar", "quiz", "quit"
             )
             $availableCommands | ForEach-Object {
                 Write-Host "  /help $_" -ForegroundColor Gray
@@ -3577,6 +3608,8 @@ function Invoke-SpotifyCommand {
         "/sidecar" { Invoke-SidecarCommand $args }
         "lyrics" { Invoke-LyricsCommand $args }
         "/lyrics" { Invoke-LyricsCommand $args }
+        "quiz" { Start-MusicQuiz $args }
+        "/quiz" { Start-MusicQuiz $args }
         "quit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
         "/quit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
         "exit" { Write-Host "Avslutar." -ForegroundColor Cyan; exit }
