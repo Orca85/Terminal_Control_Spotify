@@ -24,19 +24,42 @@
         'modules\Core\SetlistCommands.psm1'
     )
     FunctionsToExport = @(
+        # Root module (SpotifyCommands.psm1)
         'Show-SpotifyTrack',
+        'Get-SpotifyHelp',
+        'Get-SpotifyLyrics',
+        'Show-AllSpotifyCommands',
+
+        # AppCommands
+        'Start-SpotifyApp',
+        'spotify-now',
+        'notifications',
+
+        # PlaybackCommands
         'play',
         'pause',
         'next',
         'previous',
         'volume',
+        'volume-low',
+        'volume-medium',
+        'volume-high',
         'seek',
+        'skip-forward',
+        'skip-back',
+        'replay',
         'shuffle',
         'repeat',
         'devices',
         'transfer',
+        'copy-track-link',
+        'export-now-playing',
+
+        # SearchCommands
         'search',
         'search-albums',
+
+        # PlaylistQueueCommands
         'playlists',
         'play-playlist',
         'queue-playlist',
@@ -47,25 +70,78 @@
         'queue',
         'queue-album',
         'play-album',
-        'Start-SpotifyApp',
-        'Get-SpotifyHelp',
+
+        # LegacyApiClient
+        'Invoke-SpotifyApi',
+
+        # StateManager
+        'Get-SessionTracks',
+        'Set-SessionTracks',
+        'Clear-SessionTracks',
+        'Get-SessionDevices',
+        'Set-SessionDevices',
+        'Get-SessionAlbums',
+        'Set-SessionAlbums',
+        'Get-SessionPlaylists',
+        'Set-SessionPlaylists',
+        'Get-SessionQueue',
+        'Set-SessionQueue',
+        'Get-LastListContext',
+        'Set-LastListContext',
+
+        # ApiClientManager
+        'New-EnhancedSpotifyApiClient',
+        'Get-SpotifyApiClientStats',
+        'Clear-SpotifyApiClientCache',
+        'Reset-SpotifyApiClientStats',
+
+        # ErrorHandling
+        'Invoke-WithErrorHandling',
+        'Test-OfflineMode',
+        'Test-FeatureEnabled',
+        'Get-DegradationStatus',
+        'Invoke-WithGracefulDegradation',
+
+        # UIHelpers
+        'Format-Time',
+        'Show-ProgressBar',
+        'Get-StatusColor',
+        'Get-TrackColor',
+        'Get-ArtistColor',
+        'Get-AlbumColor',
+        'Get-ProgressColor',
+
+        # InteractiveMode
+        'Start-InteractiveMode',
+        'Show-InteractiveItems',
+
+        # ConfigManager
         'Get-SpotifyConfig',
         'Set-SpotifyConfig',
-        'notifications',
+
+        # LiveFeatures
         'Initialize-SpotifyLiveFeatures',
         'Start-SpotifyLiveDisplay',
+        'Stop-SpotifyLiveDisplay',
         'Get-SpotifyCurrentTrackLyrics',
-        'Get-SpotifyLyrics',
         'Get-SpotifyListeningStatistics',
         'Get-SpotifyLiveFeaturesStatus',
         'Set-SpotifyLiveFeaturesConfiguration',
         'Reset-SpotifyLiveFeaturesConfiguration',
-        'Stop-SpotifyLiveFeatures',
-        'Start-MusicQuiz',
+        'Start-SpotifySidecar',
+
+        # UI
+        'Show-SpotifyForm',
+        'Show-LyricsForm',
         'Show-PeakDashboard',
+
+        # Quiz
+        'Start-MusicQuiz',
+
+        # Setlist
         'Invoke-SetlistCommand'
     )
-    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist')
+    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'commands')
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'LiveFeatures', 'Lyrics', 'Statistics')
