@@ -109,6 +109,13 @@ function Start-QuizRound {
     Write-Host "  Round $RoundNumber/$TotalRounds" -ForegroundColor Cyan
     Write-Host "  Listening..." -ForegroundColor Yellow
 
+    # Ensure playback is stopped before starting new track
+    try {
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/pause" | Out-Null
+        Start-Sleep -Milliseconds 300
+    }
+    catch { }
+
     # Play 3-second snippet for artist guess
     try {
         $body = @{
@@ -118,8 +125,15 @@ function Start-QuizRound {
         Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
     }
     catch {
-        Write-Host "  Could not play track. Make sure a Spotify device is active." -ForegroundColor Red
-        return 0
+        # Retry once after a brief wait
+        Start-Sleep -Milliseconds 500
+        try {
+            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
+        }
+        catch {
+            Write-Host "  Could not play track. Make sure a Spotify device is active." -ForegroundColor Red
+            return 0
+        }
     }
 
     Start-Sleep -Seconds 3
@@ -164,12 +178,16 @@ function Start-QuizRound {
     Write-Host "  Correct! +10 points" -ForegroundColor Green
     $totalPoints = 10
 
-    # Phase 2: Play 5 more seconds, then ask for song title
+    # Phase 2: Resume from where we paused, play 5 more seconds, then ask for song title
     Write-Host ""
     Write-Host "  Listening to more..." -ForegroundColor Yellow
 
     try {
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" | Out-Null
+        $resumeBody = @{
+            uris        = @($trackUri)
+            position_ms = $positionMs + 3000
+        }
+        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $resumeBody | Out-Null
     }
     catch { }
 
@@ -327,6 +345,8 @@ function Start-MusicQuiz {
     $maxScore = $actualRounds * 20
 
     for ($i = 0; $i -lt $actualRounds; $i++) {
+        # Brief pause between rounds to let Spotify API settle
+        if ($i -gt 0) { Start-Sleep -Milliseconds 500 }
         $points = Start-QuizRound -Track $quizTracks[$i] -RoundNumber ($i + 1) -TotalRounds $actualRounds -DecoyArtists $decoyArtists -DecoyTracks $decoyTrackNames
         $totalScore += $points
     }
