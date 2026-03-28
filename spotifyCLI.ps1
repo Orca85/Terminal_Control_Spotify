@@ -3737,11 +3737,30 @@ function Invoke-SpotifyCommand {
                 Write-Host "Peak Dashboard module not found" -ForegroundColor Red
             }
         }
-        "quiz" { Start-MusicQuiz $args }
-        "/quiz" { Start-MusicQuiz $args }
+        "quiz" {
+            $quizModulePath = Join-Path $PSScriptRoot "modules\Quiz\QuizCommands.psm1"
+            if (Test-Path $quizModulePath) {
+                Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyApiClient.psm1") -Force -ErrorAction SilentlyContinue
+                Import-Module $quizModulePath -Force -ErrorAction SilentlyContinue
+                Start-MusicQuiz $args
+            } else {
+                Write-Host "Quiz module not found" -ForegroundColor Red
+            }
+        }
+        "/quiz" {
+            $quizModulePath = Join-Path $PSScriptRoot "modules\Quiz\QuizCommands.psm1"
+            if (Test-Path $quizModulePath) {
+                Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyApiClient.psm1") -Force -ErrorAction SilentlyContinue
+                Import-Module $quizModulePath -Force -ErrorAction SilentlyContinue
+                Start-MusicQuiz $args
+            } else {
+                Write-Host "Quiz module not found" -ForegroundColor Red
+            }
+        }
         "setlist" {
             $setlistModulePath = Join-Path $PSScriptRoot "modules\Core\SetlistCommands.psm1"
             if (Test-Path $setlistModulePath) {
+                Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyApiClient.psm1") -Force -ErrorAction SilentlyContinue
                 Import-Module $setlistModulePath -Force -ErrorAction SilentlyContinue
                 Invoke-SetlistCommand $args
             } else {
@@ -3751,6 +3770,7 @@ function Invoke-SpotifyCommand {
         "/setlist" {
             $setlistModulePath = Join-Path $PSScriptRoot "modules\Core\SetlistCommands.psm1"
             if (Test-Path $setlistModulePath) {
+                Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyApiClient.psm1") -Force -ErrorAction SilentlyContinue
                 Import-Module $setlistModulePath -Force -ErrorAction SilentlyContinue
                 Invoke-SetlistCommand $args
             } else {
@@ -3816,34 +3836,20 @@ if ($config.NotificationsEnabled) {
 # Handle sidecar/split window launch requests
 if ($Sidecar -or $NewWindow) {
     try {
-        # Import the SpotifyModule to get sidecar functions
-        $modulePath = Join-Path $PSScriptRoot "SpotifyModule.psm1"
+        # Import SpotifyCommands to get sidecar functions
+        $modulePath = Join-Path $PSScriptRoot "SpotifyCommands.psm1"
         if (Test-Path $modulePath) {
             Import-Module $modulePath -Force -ErrorAction SilentlyContinue
         }
-        
+
         if ($Sidecar -and -not $NewWindow) {
             Write-Host "🪟 Launching Spotify CLI in sidecar mode..." -ForegroundColor Cyan
-            
-            # Build command line arguments for sidecar
-            $sidecarArgs = @()
+            Start-SpotifySidecar -Position $SplitDirection
+            Write-Host "✅ Spotify CLI launched successfully in sidecar" -ForegroundColor Green
             if ($Live) {
-                $sidecarArgs += "-Live"
-                if ($LiveMode -ne "detailed") {
-                    $sidecarArgs += "-LiveMode", $LiveMode
-                }
+                Write-Host "🎵 Sidecar will start in live display mode ($LiveMode)" -ForegroundColor Cyan
             }
-            
-            $success = Start-SpotifyCliInSidecar -ScriptPath $PSCommandPath -SplitDirection $SplitDirection -AdditionalArgs $sidecarArgs
-            if ($success) {
-                Write-Host "✅ Spotify CLI launched successfully in sidecar" -ForegroundColor Green
-                if ($Live) {
-                    Write-Host "🎵 Sidecar will start in live display mode ($LiveMode)" -ForegroundColor Cyan
-                }
-                exit 0
-            } else {
-                Write-Host "⚠️ Sidecar launch failed, continuing in current terminal" -ForegroundColor Yellow
-            }
+            exit 0
         } elseif ($NewWindow) {
             Write-Host "🪟 Launching Spotify CLI in new window..." -ForegroundColor Cyan
             $success = Start-SpotifyCliInNewWindow -ScriptPath $PSCommandPath
@@ -3877,6 +3883,7 @@ if ($Live) {
 if ($Setlist) {
     $setlistModulePath = Join-Path $PSScriptRoot "modules\Core\SetlistCommands.psm1"
     if (Test-Path $setlistModulePath) {
+        Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyApiClient.psm1") -Force -ErrorAction SilentlyContinue
         Import-Module $setlistModulePath -Force -ErrorAction SilentlyContinue
         Invoke-SetlistCommand $Setlist
     } else {
@@ -3889,6 +3896,7 @@ if ($Setlist) {
 if ($Quiz -gt 0) {
     $quizModulePath = Join-Path $PSScriptRoot "modules\Quiz\QuizCommands.psm1"
     if (Test-Path $quizModulePath) {
+        Import-Module (Join-Path $PSScriptRoot "modules\Core\LegacyApiClient.psm1") -Force -ErrorAction SilentlyContinue
         Import-Module $quizModulePath -Force -ErrorAction SilentlyContinue
         Start-MusicQuiz $Quiz
     } else {

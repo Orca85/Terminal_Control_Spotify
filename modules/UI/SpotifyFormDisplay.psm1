@@ -34,27 +34,36 @@ function Show-SpotifyForm {
     if (-not $Block) {
         $modulePath = $PSScriptRoot
         $mainModulePath = Split-Path (Split-Path $modulePath -Parent) -Parent
-        $mainModulePath = Join-Path $mainModulePath "SpotifyModule.psm1"
+        $mainModulePath = Join-Path $mainModulePath "SpotifyCommands.psd1"
 
         # Get current environment variables for Spotify credentials
         $clientId = $env:SPOTIFY_CLIENT_ID
         $clientSecret = $env:SPOTIFY_CLIENT_SECRET
 
         $scriptBlock = @"
-`$ErrorActionPreference = 'Continue'
+`$ErrorActionPreference = 'SilentlyContinue'
 `$env:SPOTIFY_CLIENT_ID = '$clientId'
 `$env:SPOTIFY_CLIENT_SECRET = '$clientSecret'
 try {
-    Import-Module '$mainModulePath' -Force
+    Import-Module '$mainModulePath' -Force -DisableNameChecking
     Show-SpotifyForm -Block
 } catch {
-    Write-Host 'Error loading Spotify module' -ForegroundColor Red
-    Read-Host 'Press Enter to close'
+    # Silently exit — do not show Read-Host which would make the window visible
 }
 "@
 
-        Start-Process pwsh -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-Command", $scriptBlock
-        Write-Host "✅ Spotify display opened in background! The window will appear shortly." -ForegroundColor Green
+        # Save to temp file to avoid Windows Terminal intercepting Start-Process pwsh
+        $tempScript = Join-Path $env:TEMP "SpotifyForm_$(Get-Date -Format 'yyyyMMddHHmmss').ps1"
+        $scriptBlock | Out-File -FilePath $tempScript -Encoding UTF8
+
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source ?? 'pwsh.exe'
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$tempScript`""
+        $psi.CreateNoWindow = $true
+        $psi.UseShellExecute = $false
+        [System.Diagnostics.Process]::Start($psi) | Out-Null
+
+        Write-Host "Spotify display launched" -ForegroundColor Green
         return
     }
 

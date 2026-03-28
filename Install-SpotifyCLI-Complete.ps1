@@ -376,6 +376,11 @@ function New-ModuleManifest {
         'modules\Core\SearchCommands.psm1'
         'modules\Core\PlaylistQueueCommands.psm1'
         'modules\Lyrics\LyricsEngine.psm1'
+        'modules\Quiz\QuizCommands.psm1'
+        'modules\UI\PeakDashboard.psm1'
+        'modules\Core\SetlistCommands.psm1'
+        'modules\Core\AliasManagement.psm1'
+        'modules\Core\InstallationCommands.psm1'
     )
 
     # Verifiera vilka nested modules som faktiskt finns

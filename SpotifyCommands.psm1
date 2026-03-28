@@ -2197,6 +2197,11 @@ Set-Alias -Name pq -Value play-queue -Force -ErrorAction SilentlyContinue
 Set-Alias -Name pl -Value playlists -Force -ErrorAction SilentlyContinue
 
 # Help aliases
+function Get-SpotifyHelp {
+    param([string]$Command)
+    Invoke-HelpCommand $Command
+}
+
 Set-Alias -Name spotify -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
 
 # Override PowerShell built-in 'help' function

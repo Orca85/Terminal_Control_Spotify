@@ -319,8 +319,206 @@ function spotify-now {
     Show-SpotifyTrack $Mode
 }
 
+function notifications {
+    <#
+    .SYNOPSIS
+    Enable or disable Windows toast notifications for track changes
+    .PARAMETER Arguments
+    on / off / (empty = show status)
+    .EXAMPLE
+    notifications on
+    notifications off
+    notifications
+    #>
+    param([string]$Arguments)
+
+    $config = Get-SpotifyConfig
+    if ([string]::IsNullOrWhiteSpace($Arguments)) {
+        $status = if ($config.NotificationsEnabled) { "enabled" } else { "disabled" }
+        Write-Host "Notifications are currently $status" -ForegroundColor Cyan
+        Write-Host "Usage: notifications <on|off>" -ForegroundColor Yellow
+        return
+    }
+
+    $arg = $Arguments.ToLower().Trim()
+    if ($arg -in @("on", "enable", "true")) {
+        $config.NotificationsEnabled = $true
+        if (Set-SpotifyConfig -Config $config) {
+            Write-Host "Notifications enabled" -ForegroundColor Green
+        }
+    } elseif ($arg -in @("off", "disable", "false")) {
+        $config.NotificationsEnabled = $false
+        if (Set-SpotifyConfig -Config $config) {
+            Write-Host "Notifications disabled" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "Invalid argument. Use: notifications <on|off>" -ForegroundColor Red
+    }
+}
+
+function Test-NotificationSupport {
+    <#
+    .SYNOPSIS
+    Test whether Windows toast notifications are supported in this environment
+    .EXAMPLE
+    Test-NotificationSupport
+    #>
+    $result = [PSCustomObject]@{
+        Supported = $false
+        Method    = $null
+        Reason    = $null
+    }
+
+    # Must be Windows
+    if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
+        $result.Reason = "Notifications require Windows"
+        Write-Host "Notifications not supported: requires Windows" -ForegroundColor Yellow
+        return $result
+    }
+
+    # Check for BurntToast module (preferred)
+    if (Get-Module -ListAvailable -Name BurntToast -ErrorAction SilentlyContinue) {
+        $result.Supported = $true
+        $result.Method    = "BurntToast"
+        Write-Host "Notifications supported via BurntToast module" -ForegroundColor Green
+        return $result
+    }
+
+    # Check for WinRT Windows.UI.Notifications (Windows 8+)
+    try {
+        $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        $result.Supported = $true
+        $result.Method    = "WinRT"
+        Write-Host "Notifications supported via Windows Runtime (WinRT)" -ForegroundColor Green
+        return $result
+    } catch { }
+
+    # Fallback: check OS version (Win 8+ = build 9200+)
+    $build = [System.Environment]::OSVersion.Version.Build
+    if ($build -ge 9200) {
+        $result.Supported = $true
+        $result.Method    = "Legacy"
+        Write-Host "Notifications may be supported (Windows build $build)" -ForegroundColor Yellow
+    } else {
+        $result.Reason = "Windows build $build is too old (requires 9200+)"
+        Write-Host "Notifications not supported on this Windows version" -ForegroundColor Red
+    }
+    return $result
+}
+
+function Test-SplitWindowSupport {
+    <#
+    .SYNOPSIS
+    Check if the current terminal supports split-pane (sidecar) mode
+    .DESCRIPTION
+    Detects the terminal type and reports whether split-window mode is available
+    for the Sidecar feature.
+    .EXAMPLE
+    Test-SplitWindowSupport
+    #>
+    $caps = Get-TerminalCapabilities
+    Write-Host ""
+    Write-Host "Terminal capabilities:" -ForegroundColor Cyan
+    Write-Host "  Type:          $($caps.TerminalType)" -ForegroundColor White
+    Write-Host "  ANSI support:  $(if ($caps.SupportsAnsi) { '✅ Yes' } else { '❌ No' })" -ForegroundColor $(if ($caps.SupportsAnsi) { 'Green' } else { 'Red' })
+    Write-Host "  Split window:  $(if ($caps.SupportsSplitWindow) { '✅ Supported' } else { '❌ Not supported' })" -ForegroundColor $(if ($caps.SupportsSplitWindow) { 'Green' } else { 'Yellow' })
+    Write-Host "  Interactive:   $(if ($caps.SupportsInteractiveInput) { '✅ Yes' } else { '❌ No' })" -ForegroundColor $(if ($caps.SupportsInteractiveInput) { 'Green' } else { 'Yellow' })
+    if (-not $caps.SupportsSplitWindow) {
+        Write-Host ""
+        Write-Host "  Tip: Run inside Windows Terminal to enable sidecar mode." -ForegroundColor Gray
+    }
+    Write-Host ""
+    return $caps.SupportsSplitWindow
+}
+
+function Get-SpotifyCliTroubleshootingGuide {
+    <#
+    .SYNOPSIS
+    Display a troubleshooting guide for common Spotify CLI issues
+    .PARAMETER Issue
+    Category to show: Auth, API, Module, Playback, Lyrics, or All (default)
+    .EXAMPLE
+    Get-SpotifyCliTroubleshootingGuide
+    Get-SpotifyCliTroubleshootingGuide -Issue Auth
+    #>
+    param(
+        [ValidateSet("Auth", "API", "Module", "Playback", "Lyrics", "All")]
+        [string]$Issue = "All"
+    )
+
+    Write-Host ""
+    Write-Host "╔══════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║   Spotify CLI — Troubleshooting Guide                ║" -ForegroundColor Cyan
+    Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
+
+    $showAll = $Issue -eq "All"
+
+    if ($showAll -or $Issue -eq "Auth") {
+        Write-Host "── Authentication ──────────────────────────────────────" -ForegroundColor Yellow
+        Write-Host "❌ Problem: 'Not authenticated' or token errors" -ForegroundColor White
+        Write-Host "🔧 Fix:     Run .\spotifyCLI.ps1 to trigger OAuth flow" -ForegroundColor Gray
+        Write-Host "           Delete $env:APPDATA\SpotifyCLI\tokens.json and re-run" -ForegroundColor Gray
+        Write-Host "           Verify SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env" -ForegroundColor Gray
+        Write-Host "✅ Check:   Test-SpotifyAuth" -ForegroundColor Green
+        Write-Host ""
+    }
+
+    if ($showAll -or $Issue -eq "API") {
+        Write-Host "── Spotify API ─────────────────────────────────────────" -ForegroundColor Yellow
+        Write-Host "❌ Problem: 403 Forbidden / 'Premium required'" -ForegroundColor White
+        Write-Host "🔧 Fix:     A Spotify Premium account is required for playback control" -ForegroundColor Gray
+        Write-Host "❌ Problem: 404 / No active device" -ForegroundColor White
+        Write-Host "🔧 Fix:     Open Spotify on any device and start playing something first" -ForegroundColor Gray
+        Write-Host "           Run /devices to see available devices" -ForegroundColor Gray
+        Write-Host "❌ Problem: 429 Too many requests" -ForegroundColor White
+        Write-Host "🔧 Fix:     Wait 30 seconds. Avoid running multiple quiz rounds rapidly." -ForegroundColor Gray
+        Write-Host ""
+    }
+
+    if ($showAll -or $Issue -eq "Module") {
+        Write-Host "── Module Loading ──────────────────────────────────────" -ForegroundColor Yellow
+        Write-Host "❌ Problem: 'Function not found' errors" -ForegroundColor White
+        Write-Host "🔧 Fix:     Re-run the installer: .\Install-SpotifyCLI-Complete.ps1" -ForegroundColor Gray
+        Write-Host "           Or repair: Repair-SpotifyCliInstallation" -ForegroundColor Gray
+        Write-Host "❌ Problem: Module won't import" -ForegroundColor White
+        Write-Host "🔧 Fix:     Check PowerShell version (requires 5.0+): `$PSVersionTable.PSVersion" -ForegroundColor Gray
+        Write-Host "           Verify all .psm1 files exist: Install-SpotifyCliDependencies" -ForegroundColor Gray
+        Write-Host ""
+    }
+
+    if ($showAll -or $Issue -eq "Playback") {
+        Write-Host "── Playback ────────────────────────────────────────────" -ForegroundColor Yellow
+        Write-Host "❌ Problem: Commands run but nothing happens" -ForegroundColor White
+        Write-Host "🔧 Fix:     Open Spotify and start playing on a device first" -ForegroundColor Gray
+        Write-Host "           Transfer playback: /transfer (pick a device number)" -ForegroundColor Gray
+        Write-Host "❌ Problem: Quiz doesn't play audio" -ForegroundColor White
+        Write-Host "🔧 Fix:     Spotify must be open and playing on an active device" -ForegroundColor Gray
+        Write-Host "           Premium required for playback control via API" -ForegroundColor Gray
+        Write-Host ""
+    }
+
+    if ($showAll -or $Issue -eq "Lyrics") {
+        Write-Host "── Lyrics ──────────────────────────────────────────────" -ForegroundColor Yellow
+        Write-Host "❌ Problem: Lyrics not showing / wrong lyrics" -ForegroundColor White
+        Write-Host "🔧 Fix:     LRCLIB is the primary source (free, no key needed)" -ForegroundColor Gray
+        Write-Host "           Add GENIUS_ACCESS_TOKEN to .env for fallback" -ForegroundColor Gray
+        Write-Host "❌ Problem: Lyrics window doesn't open" -ForegroundColor White
+        Write-Host "🔧 Fix:     Requires Windows (uses WinForms)" -ForegroundColor Gray
+        Write-Host "           Check that pwsh.exe is in PATH" -ForegroundColor Gray
+        Write-Host ""
+    }
+
+    Write-Host "For more help: https://github.com/spotify-cli/enhanced" -ForegroundColor DarkGray
+    Write-Host ""
+}
+
 Export-ModuleMember -Function @(
     'Start-SpotifyApp',
     'Show-SpotifyTrack',
-    'spotify-now'
+    'spotify-now',
+    'notifications',
+    'Test-NotificationSupport',
+    'Test-SplitWindowSupport',
+    'Get-SpotifyCliTroubleshootingGuide'
 )

@@ -21,19 +21,27 @@
         'modules\Core\PlaylistQueueCommands.psm1',
         'modules\Quiz\QuizCommands.psm1',
         'modules\UI\PeakDashboard.psm1',
-        'modules\Core\SetlistCommands.psm1'
+        'modules\Core\SetlistCommands.psm1',
+        'modules\Core\AliasManagement.psm1',
+        'modules\Core\InstallationCommands.psm1'
     )
     FunctionsToExport = @(
         # Root module (SpotifyCommands.psm1)
         'Show-SpotifyTrack',
         'Get-SpotifyHelp',
+        'Invoke-HelpCommand',
         'Get-SpotifyLyrics',
         'Show-AllSpotifyCommands',
+        'Start-SpotifyCliInNewWindow',
+        'Get-TerminalCapabilities',
 
         # AppCommands
         'Start-SpotifyApp',
         'spotify-now',
         'notifications',
+        'Test-NotificationSupport',
+        'Test-SplitWindowSupport',
+        'Get-SpotifyCliTroubleshootingGuide',
 
         # PlaybackCommands
         'play',
@@ -73,6 +81,7 @@
 
         # LegacyApiClient
         'Invoke-SpotifyApi',
+        'Test-SpotifyAuth',
 
         # StateManager
         'Get-SessionTracks',
@@ -139,7 +148,17 @@
         'Start-MusicQuiz',
 
         # Setlist
-        'Invoke-SetlistCommand'
+        'Invoke-SetlistCommand',
+
+        # AliasManagement
+        'Get-SpotifyAliases',
+        'Remove-SpotifyAlias',
+        'Test-AliasConflicts',
+
+        # InstallationCommands
+        'Install-SpotifyCliDependencies',
+        'Repair-SpotifyCliInstallation',
+        'Uninstall-SpotifyCli'
     )
     AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'commands')
     PrivateData = @{

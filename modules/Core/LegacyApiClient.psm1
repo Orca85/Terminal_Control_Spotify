@@ -166,6 +166,73 @@ function Test-TokenScopes {
 }
 
 
+function Test-SpotifyAuth {
+    <#
+    .SYNOPSIS
+    Check the current Spotify authentication status
+    .DESCRIPTION
+    Reads the stored token file and reports whether authentication is valid,
+    how long until expiry, and which scopes are granted.
+    .EXAMPLE
+    Test-SpotifyAuth
+    #>
+    $result = [PSCustomObject]@{
+        IsAuthenticated  = $false
+        ExpiresInSeconds = 0
+        Scopes           = @()
+        TokenPath        = $script:TokenFile
+        Error            = $null
+    }
+
+    if (-not (Test-Path $script:TokenFile)) {
+        $result.Error = "Token file not found. Run .\spotifyCLI.ps1 to authenticate."
+        Write-Host "❌ Not authenticated — token file missing" -ForegroundColor Red
+        Write-Host "   Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
+        return $result
+    }
+
+    try {
+        $tokens = Get-Content -Path $script:TokenFile -Raw | ConvertFrom-Json
+    } catch {
+        $result.Error = "Could not read token file: $_"
+        Write-Host "❌ Token file is corrupt or unreadable" -ForegroundColor Red
+        return $result
+    }
+
+    if (-not $tokens.access_token) {
+        $result.Error = "No access token in token file."
+        Write-Host "❌ Not authenticated — no access token stored" -ForegroundColor Red
+        return $result
+    }
+
+    $obtained    = [long]$tokens.obtained_at
+    $expiresIn   = [int]$tokens.expires_in
+    $age         = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $obtained
+    $remaining   = $expiresIn - $age
+
+    if ($remaining -le 0) {
+        $result.Error = "Token has expired."
+        Write-Host "❌ Token expired" -ForegroundColor Red
+        if ($tokens.refresh_token) {
+            Write-Host "   A refresh token is available — run .\spotifyCLI.ps1 to refresh" -ForegroundColor Yellow
+        }
+        return $result
+    }
+
+    $result.IsAuthenticated  = $true
+    $result.ExpiresInSeconds = [int]$remaining
+    $result.Scopes           = if ($tokens.scopes) { $tokens.scopes -split ' ' } else { @() }
+
+    $minutesLeft = [Math]::Floor($remaining / 60)
+    Write-Host "✅ Authenticated" -ForegroundColor Green
+    Write-Host "   Token expires in: $minutesLeft minutes" -ForegroundColor Gray
+    Write-Host "   Scopes: $($result.Scopes.Count) granted" -ForegroundColor Gray
+    Write-Host "   Token file: $script:TokenFile" -ForegroundColor Gray
+
+    return $result
+}
+
+
 # --- Module Exports ---
 
-Export-ModuleMember -Function 'Invoke-SpotifyApi'
+Export-ModuleMember -Function 'Invoke-SpotifyApi', 'Test-SpotifyAuth'

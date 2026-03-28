@@ -372,13 +372,13 @@ function Update-HighlightedLine {
     $scriptFile = Join-Path $tempDir "lyrics_display_$(Get-Date -Format 'yyyyMMddHHmmss').ps1"
     $backgroundScript | Out-File -FilePath $scriptFile -Encoding UTF8
 
-    # Start background process
-    Start-Process pwsh -ArgumentList @(
-        '-NoProfile',
-        '-WindowStyle', 'Hidden',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', $scriptFile
-    )
+    # Use ProcessStartInfo to bypass Windows Terminal's process interception
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source ?? 'pwsh.exe'
+    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptFile`""
+    $psi.CreateNoWindow = $true
+    $psi.UseShellExecute = $false
+    [System.Diagnostics.Process]::Start($psi) | Out-Null
 
     Write-Host "Lyrics window launched!" -ForegroundColor Green
     Write-Host "Lyrics update automatically when song changes" -ForegroundColor Cyan

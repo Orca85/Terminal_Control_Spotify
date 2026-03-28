@@ -225,7 +225,7 @@ The CLI exports 98 functions and aliases, including 9 new live features commands
 | `Get-SpotifyLiveFeaturesStatus`          | Check system status             | `Get-SpotifyLiveFeaturesStatus`                                                                 |
 | `Set-SpotifyLiveFeaturesConfiguration`   | Update settings                 | `Set-SpotifyLiveFeaturesConfiguration -Section "liveDisplay" -Settings @{refreshInterval=2000}` |
 | `Reset-SpotifyLiveFeaturesConfiguration` | Reset to defaults               | `Reset-SpotifyLiveFeaturesConfiguration`                                                        |
-| `Stop-SpotifyLiveFeatures`               | Stop and cleanup                | `Stop-SpotifyLiveFeatures`                                                                      |
+| `Stop-SpotifyLiveDisplay`                | Stop and cleanup                | `Stop-SpotifyLiveDisplay`                                                                       |
 
 #### 🎵 Core Playback Functions
 
@@ -308,7 +308,6 @@ The CLI exports 98 functions and aliases, including 9 new live features commands
 
 | Function              | Description         | Example                                                        |
 | --------------------- | ------------------- | -------------------------------------------------------------- |
-| `Set-SpotifyAlias`    | Create custom alias | `Set-SpotifyAlias -Alias 'music' -Command 'Show-SpotifyTrack'` |
 | `Get-SpotifyAliases`  | Show all aliases    | `Get-SpotifyAliases`                                           |
 | `Remove-SpotifyAlias` | Remove custom alias | `Remove-SpotifyAlias -Alias 'music'`                           |
 | `Test-AliasConflicts` | Check for conflicts | `Test-AliasConflicts`                                          |
@@ -338,13 +337,13 @@ search "pink floyd"
 
 ### Window Management
 
-- `Start-SpotifyCliInSidecar` - Open CLI in split window
+- `Start-SpotifySidecar` - Open CLI in split window
 - `Start-SpotifyCliInNewWindow` - Open CLI in new window
 - `Test-SplitWindowSupport` - Check split window support
 
 ### Cross-Platform Features
 
-- `Show-TerminalCapabilities` - Display terminal capabilities
+- `Get-TerminalCapabilities` - Display terminal capabilities
 - `Test-NotificationSupport` - Test notification system
 
 ### Installation & Maintenance
@@ -538,7 +537,7 @@ transfer 1
 Get-SpotifyHelp
 
 # Check system capabilities
-Show-TerminalCapabilities
+Get-TerminalCapabilities
 
 # Test authentication
 Test-SpotifyAuth
