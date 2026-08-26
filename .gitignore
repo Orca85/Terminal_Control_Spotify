@@ -33,3 +33,13 @@ TestResults/
 
 # Arkiverade filer
 old_files/
+
+# Claude Code local settings
+.claude/
+CLAUDE.md
+
+# Internal planning/dev files
+error.txt
+tasks/
+FEATURE-PLAN.md
+2026-01-17-sammanfattning-av-todomd-projektplan.txt

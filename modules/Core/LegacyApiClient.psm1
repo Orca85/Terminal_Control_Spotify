@@ -1,13 +1,8 @@
 # Legacy API Client Module
 # Handles the simple token management and API invocation for the main Spotify CLI module.
 
-# --- Private Module State ---
-$script:AppDataDir = Join-Path $env:APPDATA "SpotifyCLI" # Duplicated from LegacyConfigManager, needs a better solution later.
-$script:TokenFile = Join-Path $script:AppDataDir "tokens.json"
-$script:TokenEndpoint = "https://accounts.spotify.com/api/token"
+# --- Module State ---
 $script:ApiBase = "https://api.spotify.com/v1"
-$script:RedirectUri = "http://127.0.0.1:8888/callback"
-$script:Scopes = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-private playlist-read-private user-library-read user-library-modify user-read-recently-played user-top-read"
 
 # --- Public Functions ---
 
@@ -71,100 +66,6 @@ function Invoke-SpotifyApi {
     }
 }
 
-# --- Private Helper Functions ---
-
-function Initialize-TokenStore {
-    if (-not (Test-Path $script:AppDataDir)) {
-        New-Item -ItemType Directory -Path $script:AppDataDir | Out-Null
-    }
-    if (-not (Test-Path $script:TokenFile)) {
-        '{}' | Set-Content -Path $script:TokenFile -Encoding UTF8
-    }
-}
-
-function Get-StoredTokens {
-    Initialize-TokenStore
-    try {
-        $json = Get-Content -Path $script:TokenFile -Raw -ErrorAction Stop
-        if ([string]::IsNullOrWhiteSpace($json)) { return @{} }
-        return ($json | ConvertFrom-Json)
-    } catch { return @{} }
-}
-
-function Set-StoredTokens($Tokens) {
-    Initialize-TokenStore
-    ($Tokens | ConvertTo-Json -Depth 5) | Set-Content -Path $script:TokenFile -Encoding UTF8
-}
-
-function Get-SpotifyAccessToken {
-    $tokens = Get-StoredTokens
-    if (-not $tokens.access_token) {
-        Write-Host "🔐 Authentication required. Please run the main CLI script first to authenticate." -ForegroundColor Yellow
-        Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
-        return $null
-    }
-    # Check if token has required scopes for enhanced features
-    if (-not (Test-TokenScopes $tokens)) {
-        Write-Host "🔐 Token requires additional permissions. Please re-authenticate using the main CLI script." -ForegroundColor Yellow
-        Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
-        return $null
-    }
-    # Check if token is expired and refresh if needed
-    $obtained = [long]$tokens.obtained_at
-    $expiresIn = [int]$tokens.expires_in
-    $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $obtained
-    if ($age -ge ($expiresIn - 60)) {
-        # Token is expired, try to refresh
-        if (-not $tokens.refresh_token) {
-            Write-Host "🔐 Token expired and no refresh token available. Please re-authenticate." -ForegroundColor Yellow
-            Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
-            return $null
-        }
-        try {
-            $body = @{
-                grant_type = "refresh_token"
-                refresh_token = $tokens.refresh_token
-                client_id = $env:SPOTIFY_CLIENT_ID
-                client_secret = $env:SPOTIFY_CLIENT_SECRET
-            }
-            $tokenResp = Invoke-RestMethod -Method Post -Uri $script:TokenEndpoint -Body $body
-            $tokens.access_token = $tokenResp.access_token
-            if ($tokenResp.refresh_token) { $tokens.refresh_token = $tokenResp.refresh_token }
-            $tokens.expires_in = $tokenResp.expires_in
-            $tokens.obtained_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-            Set-StoredTokens $tokens
-            Write-Host "🔄 Token refreshed successfully" -ForegroundColor Green
-        } catch {
-            Write-Host "🔄 Token refresh failed. Please re-authenticate." -ForegroundColor Red
-            Write-Host "Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
-            return $null
-        }
-    }
-    return $tokens.access_token
-}
-
-function Test-TokenScopes {
-    <#
-    .SYNOPSIS
-    Test if current token has required scopes for enhanced features
-    #>
-    param($Tokens)
-    # If no scope information is stored, assume old token and require re-auth
-    if (-not $Tokens.scopes) {
-        return $false
-    }
-    # Check if all required scopes are present
-    $requiredScopes = $script:Scopes -split ' '
-    $tokenScopes = $Tokens.scopes -split ' '
-    foreach ($scope in $requiredScopes) {
-        if ($scope -notin $tokenScopes) {
-            Write-Verbose "Missing required scope: $scope"
-            return $false
-        }
-    }
-    return $true
-}
-
 
 function Test-SpotifyAuth {
     <#
@@ -180,19 +81,20 @@ function Test-SpotifyAuth {
         IsAuthenticated  = $false
         ExpiresInSeconds = 0
         Scopes           = @()
-        TokenPath        = $script:TokenFile
+        TokenPath        = (Join-Path $env:APPDATA "SpotifyCLI\tokens.json")
         Error            = $null
     }
 
-    if (-not (Test-Path $script:TokenFile)) {
-        $result.Error = "Token file not found. Run .\spotifyCLI.ps1 to authenticate."
-        Write-Host "❌ Not authenticated — token file missing" -ForegroundColor Red
-        Write-Host "   Run: .\spotifyCLI.ps1" -ForegroundColor Cyan
+    $tokenFile = Join-Path $env:APPDATA "SpotifyCLI\tokens.json"
+    if (-not (Test-Path $tokenFile)) {
+        $result.Error = "Token file not found. Run Start-SpotifyCLI to authenticate."
+        Write-Host "Not authenticated — token file missing." -ForegroundColor Red
+        Write-Host "  Run: Start-SpotifyCLI" -ForegroundColor Cyan
         return $result
     }
 
     try {
-        $tokens = Get-Content -Path $script:TokenFile -Raw | ConvertFrom-Json
+        $tokens = Get-Content -Path $tokenFile -Raw | ConvertFrom-Json
     } catch {
         $result.Error = "Could not read token file: $_"
         Write-Host "❌ Token file is corrupt or unreadable" -ForegroundColor Red
@@ -227,7 +129,7 @@ function Test-SpotifyAuth {
     Write-Host "✅ Authenticated" -ForegroundColor Green
     Write-Host "   Token expires in: $minutesLeft minutes" -ForegroundColor Gray
     Write-Host "   Scopes: $($result.Scopes.Count) granted" -ForegroundColor Gray
-    Write-Host "   Token file: $script:TokenFile" -ForegroundColor Gray
+    Write-Host "   Token file: $(Join-Path $env:APPDATA 'SpotifyCLI\tokens.json')" -ForegroundColor Gray
 
     return $result
 }

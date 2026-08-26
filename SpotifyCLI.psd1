@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.0.0'
+    ModuleVersion = '3.2.4'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -10,6 +10,7 @@
     NestedModules = @(
         'modules\SpotifyLiveFeatures.psm1',
         'modules\Core\ErrorHandling.psm1',
+        'modules\Core\AuthenticationManager.psm1',
         'modules\Core\ApiClientManager.psm1',
         'modules\Core\LegacyApiClient.psm1',
         'modules\Core\StateManager.psm1',
@@ -25,7 +26,9 @@
         'modules\UI\PeakDashboard.psm1',
         'modules\Core\SetlistCommands.psm1',
         'modules\Core\AliasManagement.psm1',
-        'modules\Core\InstallationCommands.psm1'
+        'modules\Core\InstallationCommands.psm1',
+        'modules\Core\FavoriteCommands.psm1',
+        'modules\Core\CliLoop.psm1'
     )
     FunctionsToExport = @(
         'Show-SpotifyTrack',
@@ -68,6 +71,7 @@
         'playlists',
         'play-playlist',
         'queue-playlist',
+        'play-queue',
         'liked',
         'recent',
         'save-track',
@@ -130,6 +134,7 @@
 
         'Show-SpotifyForm',
         'Show-LyricsForm',
+        'Show-SpotifyLyricsForm',
         'Show-PeakDashboard',
 
         'Start-MusicQuiz',
@@ -142,9 +147,21 @@
 
         'Install-SpotifyCliDependencies',
         'Repair-SpotifyCliInstallation',
-        'Uninstall-SpotifyCli'
+        'Uninstall-SpotifyCli',
+
+        'Invoke-FavoriteCommand',
+        'fav',
+
+        'Start-SpotifyCLI',
+        'Invoke-SpotifyCommand',
+        'Initialize-SpotifyCredentials',
+        'Get-SpotifyAccessToken',
+        'Start-SpotifyAuth',
+        'Get-StoredTokens',
+        'Set-StoredTokens',
+        'Initialize-TokenStore'
     )
-    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'commands')
+    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'commands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'Audio', 'Player', 'Terminal', 'PowerShell', 'NowPlaying', 'Playback', 'Lyrics', 'LiveDisplay', 'Statistics', 'Quiz', 'Setlist', 'PSModule')

@@ -134,7 +134,44 @@ Works with:
 
 ---
 
-## 🚀 Setup
+## ⚡ Quick Start (PowerShell Gallery)
+
+The fastest way to get started — no cloning required.
+
+### Step 1 — Create a Spotify Developer App
+
+1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+2. Click **Create App** and fill in any name
+3. Add **Redirect URI**: `http://127.0.0.1:8888/callback`
+4. Save and copy your **Client ID** and **Client Secret**
+
+### Step 2 — Install and run
+
+```powershell
+Install-Module SpotifyCLI -Scope CurrentUser
+Start-SpotifyCLI
+```
+
+On first run you'll be prompted for your Client ID and Client Secret, then a browser window opens for Spotify login. After that, tokens are saved automatically — no login needed on future runs.
+
+**Tip:** To skip the prompt, set env vars before calling `Start-SpotifyCLI`:
+
+```powershell
+$env:SPOTIFY_CLIENT_ID     = "your_client_id"
+$env:SPOTIFY_CLIENT_SECRET = "your_client_secret"
+Start-SpotifyCLI
+```
+
+Or place a `.env` file in your current directory:
+
+```
+SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret
+```
+
+---
+
+## 🚀 Setup (from source)
 
 ### 1. Create a Spotify Developer App
 
