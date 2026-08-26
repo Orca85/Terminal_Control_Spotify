@@ -3836,8 +3836,8 @@ if ($config.NotificationsEnabled) {
 # Handle sidecar/split window launch requests
 if ($Sidecar -or $NewWindow) {
     try {
-        # Import SpotifyCommands to get sidecar functions
-        $modulePath = Join-Path $PSScriptRoot "SpotifyCommands.psm1"
+        # Import SpotifyCLI to get sidecar functions
+        $modulePath = Join-Path $PSScriptRoot "SpotifyCLI.psm1"
         if (Test-Path $modulePath) {
             Import-Module $modulePath -Force -ErrorAction SilentlyContinue
         }

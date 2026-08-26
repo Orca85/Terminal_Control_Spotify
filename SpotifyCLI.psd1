@@ -1,10 +1,12 @@
 @{
-    RootModule = 'SpotifyCommands.psm1'
+    RootModule = 'SpotifyCLI.psm1'
     ModuleVersion = '3.0.0'
-    GUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
-    Author = 'Spotify CLI Enhanced with Live Features'
-    Description = 'Enhanced Spotify CLI with live display, lyrics, statistics, and cross-platform compatibility'
-    PowerShellVersion = '5.0'
+    GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
+    Author = 'Orca85'
+    CompanyName = 'Orca'
+    Copyright = '(c) 2026 Orca85. All rights reserved.'
+    Description = 'Full-featured Spotify terminal client for PowerShell. Control playback, search, playlists, devices, queue, and more — plus Live Display, synchronized lyrics, music quiz, setlist lookup, and statistics analytics. Requires Spotify Premium and a Spotify Developer App.'
+    PowerShellVersion = '5.1'
     NestedModules = @(
         'modules\SpotifyLiveFeatures.psm1',
         'modules\Core\ErrorHandling.psm1',
@@ -26,7 +28,6 @@
         'modules\Core\InstallationCommands.psm1'
     )
     FunctionsToExport = @(
-        # Root module (SpotifyCommands.psm1)
         'Show-SpotifyTrack',
         'Get-SpotifyHelp',
         'Invoke-HelpCommand',
@@ -35,7 +36,6 @@
         'Start-SpotifyCliInNewWindow',
         'Get-TerminalCapabilities',
 
-        # AppCommands
         'Start-SpotifyApp',
         'spotify-now',
         'notifications',
@@ -43,7 +43,6 @@
         'Test-SplitWindowSupport',
         'Get-SpotifyCliTroubleshootingGuide',
 
-        # PlaybackCommands
         'play',
         'pause',
         'next',
@@ -63,11 +62,9 @@
         'copy-track-link',
         'export-now-playing',
 
-        # SearchCommands
         'search',
         'search-albums',
 
-        # PlaylistQueueCommands
         'playlists',
         'play-playlist',
         'queue-playlist',
@@ -79,11 +76,9 @@
         'queue-album',
         'play-album',
 
-        # LegacyApiClient
         'Invoke-SpotifyApi',
         'Test-SpotifyAuth',
 
-        # StateManager
         'Get-SessionTracks',
         'Set-SessionTracks',
         'Clear-SessionTracks',
@@ -98,20 +93,17 @@
         'Get-LastListContext',
         'Set-LastListContext',
 
-        # ApiClientManager
         'New-EnhancedSpotifyApiClient',
         'Get-SpotifyApiClientStats',
         'Clear-SpotifyApiClientCache',
         'Reset-SpotifyApiClientStats',
 
-        # ErrorHandling
         'Invoke-WithErrorHandling',
         'Test-OfflineMode',
         'Test-FeatureEnabled',
         'Get-DegradationStatus',
         'Invoke-WithGracefulDegradation',
 
-        # UIHelpers
         'Format-Time',
         'Show-ProgressBar',
         'Get-StatusColor',
@@ -120,15 +112,12 @@
         'Get-AlbumColor',
         'Get-ProgressColor',
 
-        # InteractiveMode
         'Start-InteractiveMode',
         'Show-InteractiveItems',
 
-        # ConfigManager
         'Get-SpotifyConfig',
         'Set-SpotifyConfig',
 
-        # LiveFeatures
         'Initialize-SpotifyLiveFeatures',
         'Start-SpotifyLiveDisplay',
         'Stop-SpotifyLiveDisplay',
@@ -139,23 +128,18 @@
         'Reset-SpotifyLiveFeaturesConfiguration',
         'Start-SpotifySidecar',
 
-        # UI
         'Show-SpotifyForm',
         'Show-LyricsForm',
         'Show-PeakDashboard',
 
-        # Quiz
         'Start-MusicQuiz',
 
-        # Setlist
         'Invoke-SetlistCommand',
 
-        # AliasManagement
         'Get-SpotifyAliases',
         'Remove-SpotifyAlias',
         'Test-AliasConflicts',
 
-        # InstallationCommands
         'Install-SpotifyCliDependencies',
         'Repair-SpotifyCliInstallation',
         'Uninstall-SpotifyCli'
@@ -163,9 +147,22 @@
     AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'commands')
     PrivateData = @{
         PSData = @{
-            Tags = @('Spotify', 'Music', 'CLI', 'LiveFeatures', 'Lyrics', 'Statistics')
-            ProjectUri = 'https://github.com/spotify-cli/enhanced'
-            ReleaseNotes = 'Version 3.0.0 - Added Live Features: Real-time display, lyrics engine, and statistics analytics'
+            Tags = @('Spotify', 'Music', 'CLI', 'Audio', 'Player', 'Terminal', 'PowerShell', 'NowPlaying', 'Playback', 'Lyrics', 'LiveDisplay', 'Statistics', 'Quiz', 'Setlist', 'PSModule')
+            ProjectUri = 'https://github.com/Orca85/Terminal-Control-Spotify'
+            LicenseUri = 'https://github.com/Orca85/Terminal-Control-Spotify/blob/main/LICENSE'
+            ReleaseNotes = @'
+v3.0.0
+- Live Display: real-time now-playing with progress bar (detailed/compact/minimal modes)
+- Synchronized lyrics via LRCLIB (LRC format, 100ms sync) with Genius/Musixmatch fallback
+- Music Quiz: multiple-choice artist + song quiz from your listening history
+- Setlist lookup: fetch concert setlists from setlist.fm and build a Spotify playlist
+- Peak Dashboard: WinForms analytics window with listening statistics
+- WinForms Now-Playing window: always-on-top floating display with playback controls
+- Sidecar mode: split-pane launch in Windows Terminal / VS Code
+- Interactive arrow-key navigation for search, playlists, and queue
+- Multi-level caching and graceful offline degradation
+- 100+ functions and aliases for full Spotify control
+'@
         }
     }
 }
