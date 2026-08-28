@@ -208,8 +208,17 @@ function Show-SpotifyTrack {
     param([string]$Mode)
     try {
         $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-        if (-not $currentTrack -or -not $currentTrack.item) {
+        if (-not $currentTrack) {
             Write-Host "No track currently playing" -ForegroundColor Yellow
+            return
+        }
+        if (-not $currentTrack.item) {
+            if ($currentTrack.currently_playing_type -eq "episode") {
+                Write-Host "🎙️ Podcast episode is playing" -ForegroundColor Magenta
+                Write-Host "   (Episode details not available from API)" -ForegroundColor Gray
+            } else {
+                Write-Host "No track currently playing" -ForegroundColor Yellow
+            }
             return
         }
         $config = Get-SpotifyConfig
