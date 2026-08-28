@@ -165,8 +165,8 @@
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'Audio', 'Player', 'Terminal', 'PowerShell', 'NowPlaying', 'Playback', 'Lyrics', 'LiveDisplay', 'Statistics', 'Quiz', 'Setlist', 'PSModule')
-            ProjectUri = 'https://github.com/Orca85/Terminal-Control-Spotify'
-            LicenseUri = 'https://github.com/Orca85/Terminal-Control-Spotify/blob/main/LICENSE'
+            ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
+            LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
 v3.0.0
 - Live Display: real-time now-playing with progress bar (detailed/compact/minimal modes)

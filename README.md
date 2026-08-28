@@ -1,4 +1,4 @@
-# SpotifyCLI v3.2.4
+# 🎵 SpotifyCLI v3.2.4
 
 A full-featured Spotify terminal client for PowerShell. Control playback, search, browse playlists, manage your queue, view synchronized lyrics, track listening statistics, play a music quiz, and look up concert setlists — all from the terminal.
 
@@ -6,7 +6,7 @@ Requires **Spotify Premium** and a **Spotify Developer App** (free to create).
 
 ---
 
-## Quick Start (PowerShell Gallery)
+## ⚡ Quick Start (PowerShell Gallery)
 
 ### Step 1 — Create a Spotify Developer App
 
@@ -41,7 +41,7 @@ SPOTIFY_CLIENT_SECRET=your_client_secret
 
 ---
 
-## Setup (from source)
+## 🚀 Setup (from source)
 
 ```powershell
 # Clone the repo, then:
@@ -57,63 +57,63 @@ To clean up a previous installation:
 
 ---
 
-## Features
+## ✨ Features
 
-### Playback Control
+### 🎛️ Playback Control
 
-| Command      | Aliases              | Description                        |
-| ------------ | -------------------- | ---------------------------------- |
-| `plays-now`  | `pn`, `music`, `sp`  | Show current track                 |
-| `play`       |                      | Resume or play item by number      |
-| `pause`      |                      | Toggle pause/resume                |
-| `next`       |                      | Skip to next track                 |
-| `previous`   |                      | Go to previous track               |
-| `volume`     | `vol`                | Set volume 0–100                   |
-| `volume-low` / `volume-medium` / `volume-high` | | Volume presets        |
-| `seek`       |                      | Seek forward/backward (seconds)    |
-| `skip-forward` / `skip-back` |        | Jump 15 seconds forward/back       |
-| `shuffle`    | `sh`                 | Toggle or set shuffle mode         |
-| `repeat`     | `rep`                | Set repeat (off/track/context)     |
-| `replay`     |                      | Restart current track              |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `plays-now` | `pn`, `music`, `sp` | Show current track |
+| `play` | | Resume or play item by number |
+| `pause` | | Toggle pause/resume |
+| `next` | | Skip to next track |
+| `previous` | | Go to previous track |
+| `volume` | `vol` | Set volume 0–100 |
+| `volume-low` / `volume-medium` / `volume-high` | | Volume presets |
+| `seek` | | Seek forward/backward (seconds) |
+| `skip-forward` / `skip-back` | | Jump 15 seconds forward/back |
+| `shuffle` | `sh` | Toggle or set shuffle mode |
+| `repeat` | `rep` | Set repeat (off/track/context) |
+| `replay` | | Restart current track |
 
-### Search & Discovery
+### 🔍 Search & Discovery
 
-| Command        | Description                          | Example                        |
-| -------------- | ------------------------------------ | ------------------------------ |
-| `search`       | Search tracks, albums, podcasts      | `search "bohemian rhapsody"`   |
-| `search-albums`| Search albums                        | `search-albums "pink floyd"`   |
+| Command | Description | Example |
+| ------- | ----------- | ------- |
+| `search` | Search tracks, albums, podcasts | `search "bohemian rhapsody"` |
+| `search-albums` | Search albums | `search-albums "pink floyd"` |
 
 After searching, results are numbered. Use `play 1`, `queue 2`, etc. to act on them. Navigation also supports arrow keys in interactive mode.
 
-### Playlists & Library
+### 📚 Playlists & Library
 
-| Command          | Aliases | Description                   |
-| ---------------- | ------- | ----------------------------- |
-| `playlists`      | `pl`    | List your playlists           |
-| `play-playlist`  |         | Play playlist by number       |
-| `queue-playlist` | `pq`    | Add playlist to queue         |
-| `liked`          |         | Show liked songs              |
-| `recent`         |         | Show recently played          |
-| `save-track`     |         | Save current track to library |
-| `unsave-track`   |         | Remove current track          |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `playlists` | `pl` | List your playlists |
+| `play-playlist` | | Play playlist by number |
+| `queue-playlist` | `pq` | Add playlist to queue |
+| `liked` | | Show liked songs |
+| `recent` | | Show recently played |
+| `save-track` | | Save current track to library |
+| `unsave-track` | | Remove current track |
 
-### Queue & Albums
+### 🎯 Queue & Albums
 
-| Command       | Aliases | Description              |
-| ------------- | ------- | ------------------------ |
-| `queue`       | `q`     | Show queue or add by number |
-| `play-queue`  |         | Play a numbered queue item |
-| `play-album`  |         | Play album by number     |
-| `queue-album` |         | Add album to queue       |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `queue` | `q` | Show queue or add by number |
+| `play-queue` | | Play a numbered queue item |
+| `play-album` | | Play album by number |
+| `queue-album` | | Add album to queue |
 
-### Device Management
+### 📱 Device Management
 
-| Command    | Aliases | Description               |
-| ---------- | ------- | ------------------------- |
-| `devices`  |         | List available devices    |
-| `transfer` | `tr`    | Switch playback to device |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `devices` | | List available devices |
+| `transfer` | `tr` | Switch playback to device |
 
-### Interactive Navigation
+### 🎮 Interactive Navigation
 
 Arrow key navigation is available after any list command (`search`, `playlists`, `queue`):
 
@@ -123,13 +123,13 @@ Arrow key navigation is available after any list command (`search`, `playlists`,
 - **1–9** — jump to numbered item
 - **Esc** — exit
 
-### Live Display
+### 📺 Live Display
 
-| Command                    | Aliases       | Description                          |
-| -------------------------- | ------------- | ------------------------------------ |
-| `Start-SpotifyLiveDisplay` | `live`        | Real-time now-playing (progress bar) |
-| `Stop-SpotifyLiveDisplay`  |               | Stop live display                    |
-| `Start-SpotifySidecar`     | `live-music`  | Split-pane display in Windows Terminal |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `Start-SpotifyLiveDisplay` | `live` | Real-time now-playing with progress bar |
+| `Stop-SpotifyLiveDisplay` | | Stop live display |
+| `Start-SpotifySidecar` | `live-music` | Split-pane display in Windows Terminal |
 
 Modes: `detailed`, `compact`, `minimal`
 
@@ -137,20 +137,20 @@ Modes: `detailed`, `compact`, `minimal`
 Start-SpotifyLiveDisplay -Mode compact
 ```
 
-### Lyrics
+### 🎤 Lyrics
 
-| Command              | Aliases              | Description                            |
-| -------------------- | -------------------- | -------------------------------------- |
-| `Get-SpotifyLyrics`  | `slw`, `ShowLyrics`  | Synchronized lyrics in a floating window |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `Get-SpotifyLyrics` | `slw`, `ShowLyrics` | Synchronized lyrics in a floating window |
 
-Lyrics are sourced from LRCLIB (free, no key) with automatic fallback to Genius and Musixmatch. The window color-codes lines: dark gray = sung, bright green = current, white = upcoming.
+Lyrics are sourced from LRCLIB (free, no key needed) with automatic fallback to Genius and Musixmatch. The window color-codes lines: dark gray = sung, bright green = current, white = upcoming.
 
 ```powershell
 slw   # Open lyrics window for current track
 Get-SpotifyLyrics -Artist "Queen" -Track "Bohemian Rhapsody"
 ```
 
-### Now Playing Window
+### 🪟 Now Playing Window
 
 ```powershell
 ss        # Open floating playback window (alias: ShowSpotify)
@@ -158,12 +158,12 @@ ss        # Open floating playback window (alias: ShowSpotify)
 
 Always-on-top WinForms window with track info, progress bar, and playback controls (Prev / Play-Pause / Next / Shuffle / Repeat).
 
-### Statistics & Peak Dashboard
+### 📊 Statistics & Peak Dashboard
 
-| Command                          | Aliases | Description                        |
-| -------------------------------- | ------- | ---------------------------------- |
-| `Get-SpotifyListeningStatistics` | `stats` | Listening analytics in terminal    |
-| `Show-PeakDashboard`             | `peak`  | WinForms analytics dashboard       |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `Get-SpotifyListeningStatistics` | `stats` | Listening analytics in terminal |
+| `Show-PeakDashboard` | `peak` | WinForms analytics dashboard |
 
 ```powershell
 stats
@@ -171,7 +171,7 @@ Get-SpotifyListeningStatistics -Period week
 peak
 ```
 
-### Music Quiz
+### 🎲 Music Quiz
 
 Test your music knowledge — multiple-choice questions drawn from your listening history.
 
@@ -182,7 +182,7 @@ quiz 10    # Custom round count (1–20)
 
 Scoring: exact title = 20 pts, exact artist = 10 pts, partial match = 5 pts. Highscores saved automatically.
 
-### Setlist Lookup
+### 🎸 Setlist Lookup
 
 Fetch a concert setlist and build a Spotify playlist from it.
 
@@ -190,28 +190,28 @@ Fetch a concert setlist and build a Spotify playlist from it.
 setlist "Radiohead"
 ```
 
-### Favorites
+### ❤️ Favorites
 
 ```powershell
 fav        # Mark current track as favorite
 ```
 
-### Utilities
+### 🔧 Utilities
 
-| Command                   | Aliases                | Description                |
-| ------------------------- | ---------------------- | -------------------------- |
-| `Get-SpotifyHelp`         | `help`, `spotify-help` | Show all commands          |
-| `Show-AllSpotifyCommands` | `commands`             | Compact command list       |
-| `Start-SpotifyApp`        | `spotify`              | Launch Spotify desktop app |
-| `copy-track-link`         |                        | Copy current track URL     |
-| `export-now-playing`      |                        | Export track info to file  |
-| `notifications`           |                        | Toggle terminal notifications |
-| `Get-SpotifyConfig`       |                        | View current settings      |
-| `Set-SpotifyConfig`       |                        | Update a setting           |
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `Get-SpotifyHelp` | `help`, `spotify-help` | Show all commands |
+| `Show-AllSpotifyCommands` | `commands` | Compact command list |
+| `Start-SpotifyApp` | `spotify` | Launch Spotify desktop app |
+| `copy-track-link` | | Copy current track URL |
+| `export-now-playing` | | Export track info to file |
+| `notifications` | | Toggle terminal notifications |
+| `Get-SpotifyConfig` | | View current settings |
+| `Set-SpotifyConfig` | | Update a setting |
 
 ---
 
-## Requirements
+## ⚙️ Requirements
 
 - PowerShell 5.1+ (Windows) or PowerShell 7+
 - Spotify Premium account
@@ -219,7 +219,7 @@ fav        # Mark current track as favorite
 
 ---
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ```powershell
 Test-SpotifyAuth                     # Check token status
@@ -236,3 +236,13 @@ Repair-SpotifyCliInstallation        # Attempt auto-repair
 ```powershell
 Import-Module SpotifyCLI -Force
 ```
+
+---
+
+## ☕ Support My Work
+
+If you enjoy the tools and apps I build, feel free to support future updates — totally optional, but always appreciated!
+
+<a href="https://buymeacoffee.com/orca85" target="_blank">
+  <img src="https://github.com/Orca85/Terminal-Control-Spotify/blob/main/images/coffee-qr.png?raw=true" alt="Buy Me a Coffee QR" width="150" />
+</a>
