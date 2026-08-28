@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.5'
+    ModuleVersion = '3.2.7'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
