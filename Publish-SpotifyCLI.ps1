@@ -49,10 +49,12 @@ Write-Host "Copying files..." -ForegroundColor Gray
 Copy-Item (Join-Path $ProjectRoot "$ModuleName.psd1") $BuildDir
 Copy-Item (Join-Path $ProjectRoot "$ModuleName.psm1") $BuildDir
 Copy-Item (Join-Path $ProjectRoot "modules") $BuildDir -Recurse
+Copy-Item (Join-Path $ProjectRoot "README.md") $BuildDir
 
 Write-Host "  $ModuleName.psd1" -ForegroundColor DarkGray
 Write-Host "  $ModuleName.psm1" -ForegroundColor DarkGray
 Write-Host "  modules\ ($(Get-ChildItem "$ProjectRoot\modules" -Recurse -Filter '*.psm1' | Measure-Object | Select-Object -ExpandProperty Count) psm1 files)" -ForegroundColor DarkGray
+Write-Host "  README.md" -ForegroundColor DarkGray
 
 # --- Validate manifest ---
 Write-Host ""
