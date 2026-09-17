@@ -36,8 +36,16 @@ function Invoke-SpotifyApi {
             $statusCode = [int]$_.Exception.Response.StatusCode
         }
 
+        # $_.ErrorDetails.Message holds the response body on both Windows PowerShell 5.1
+        # and PowerShell 7+ (pwsh). The old GetResponseStream()-based approach only works
+        # on the .NET Framework HttpWebResponse used by PS 5.1 — pwsh's Invoke-RestMethod
+        # throws HttpResponseException with an HttpResponseMessage .Response that has no
+        # GetResponseStream() method, so that branch silently produced an empty body and
+        # masked the real Spotify error behind a generic fallback message.
         $responseBody = ""
-        if ($_.Exception.Response.GetResponseStream) {
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            $responseBody = $_.ErrorDetails.Message
+        } elseif ($_.Exception.Response.GetResponseStream) {
             $streamReader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
             $responseBody = $streamReader.ReadToEnd()
             $streamReader.Close()
@@ -49,14 +57,17 @@ function Invoke-SpotifyApi {
             }
             403 {
                 $errorDetails = ($responseBody | ConvertFrom-Json -ErrorAction SilentlyContinue)
-                $message = if ($errorDetails) { $errorDetails.error.message } else { "Permission denied. This operation may require a higher scope or Spotify Premium." }
+                $message = if ($errorDetails -and $errorDetails.error.message) { $errorDetails.error.message } else { "Permission denied. This operation may require a higher scope or Spotify Premium." }
                 throw "$message (HTTP $statusCode)"
             }
             404 {
                 throw "The requested resource was not found. (HTTP $statusCode)"
             }
             429 {
-                $retryAfter = $_.Exception.Response.Headers['Retry-After']
+                $retryAfter = $null
+                if ($_.Exception.Response.Headers) {
+                    try { $retryAfter = ($_.Exception.Response.Headers.GetValues('Retry-After') | Select-Object -First 1) } catch { }
+                }
                 throw "Rate limited by Spotify. Retry after $retryAfter seconds. (HTTP $statusCode)"
             }
             default {

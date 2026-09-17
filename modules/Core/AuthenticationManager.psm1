@@ -27,12 +27,17 @@ $script:TokenFile     = Join-Path $script:AppDataDir "tokens.json"
 function Initialize-SpotifyCredentials {
     <#
     .SYNOPSIS
-    Load Spotify API credentials in priority order: parameters > env vars > .env file > prompt.
+    Load Spotify API credentials in priority order: parameters > .env file > env vars > prompt.
+
+    .DESCRIPTION
+    The .env file is checked before inherited environment variables on purpose: it is the
+    documented, per-project way to set or rotate credentials (see README), while an
+    inherited $env:SPOTIFY_CLIENT_* value may be a stale User/Machine-level variable set
+    during initial setup (see docs/Spotify-API-Guide.md) that never gets updated again.
+    Without this order, regenerating the client secret in the Spotify dashboard and
+    updating .env would silently keep using the old, now-invalid secret.
     #>
     param([string]$ClientId, [string]$ClientSecret)
-
-    if (-not $ClientId)     { $ClientId     = $env:SPOTIFY_CLIENT_ID }
-    if (-not $ClientSecret) { $ClientSecret = $env:SPOTIFY_CLIENT_SECRET }
 
     if (-not $ClientId -or -not $ClientSecret) {
         $envFile = Join-Path (Get-Location) ".env"
@@ -47,6 +52,9 @@ function Initialize-SpotifyCredentials {
             }
         }
     }
+
+    if (-not $ClientId)     { $ClientId     = $env:SPOTIFY_CLIENT_ID }
+    if (-not $ClientSecret) { $ClientSecret = $env:SPOTIFY_CLIENT_SECRET }
 
     if (-not $ClientId) {
         Write-Host ""
