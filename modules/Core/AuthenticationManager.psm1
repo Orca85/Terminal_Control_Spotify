@@ -204,6 +204,21 @@ function Test-TokenScopes {
 # --- Token Access (with auto-refresh and re-auth) ---
 
 function Get-SpotifyAccessToken {
+    <#
+    .SYNOPSIS
+    Get a valid Spotify access token, refreshing or re-authenticating as needed.
+
+    .DESCRIPTION
+    Self-heals missing credentials: callers that only import the module and invoke
+    a bare command (next, play, ...) never go through CliLoop's startup, so
+    $script:ClientId/$script:ClientSecret can still be unset here. Without this,
+    a stored access token works fine until it needs refreshing (~hourly), at which
+    point the refresh call silently fails with empty client_id/client_secret.
+    #>
+    if (-not $script:ClientId -or -not $script:ClientSecret) {
+        Initialize-SpotifyCredentials
+    }
+
     $tokens = Get-StoredTokens
     if (-not $tokens.access_token) {
         $tokens = Start-SpotifyAuth

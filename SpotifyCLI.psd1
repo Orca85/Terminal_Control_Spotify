@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.9'
+    ModuleVersion = '3.2.10'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -168,6 +168,11 @@
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.10
+- fix: Get-SpotifyAccessToken now self-heals missing credentials (calls Initialize-SpotifyCredentials
+  when $script:ClientId/$script:ClientSecret are unset), so bare aliases like `next`/`play` used
+  outside Start-SpotifyCLI no longer fail with "Credentials not set" once the stored token expires.
+
 v3.0.0
 - Live Display: real-time now-playing with progress bar (detailed/compact/minimal modes)
 - Synchronized lyrics via LRCLIB (LRC format, 100ms sync) with Genius/Musixmatch fallback
