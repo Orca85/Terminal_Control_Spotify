@@ -21,36 +21,54 @@ $script:Scopes        = @(
 ) -join " "
 $script:AppDataDir    = Join-Path $env:APPDATA "SpotifyCLI"
 $script:TokenFile     = Join-Path $script:AppDataDir "tokens.json"
+$script:CredentialsFile = Join-Path $script:AppDataDir ".env"
 
 # --- Credential Setup ---
+
+function Read-CredentialsFile {
+    param([string]$Path)
+    $result = @{}
+    if (Test-Path $Path) {
+        Get-Content $Path | ForEach-Object {
+            if ($_ -match "^(.*?)=(.*)$") { $result[$matches[1].Trim()] = $matches[2].Trim() }
+        }
+    }
+    return $result
+}
 
 function Initialize-SpotifyCredentials {
     <#
     .SYNOPSIS
-    Load Spotify API credentials in priority order: parameters > .env file > env vars > prompt.
+    Load Spotify API credentials in priority order:
+    parameters > .env in current directory > %APPDATA%\SpotifyCLI\.env > env vars > prompt.
 
     .DESCRIPTION
-    The .env file is checked before inherited environment variables on purpose: it is the
+    .env files are checked before inherited environment variables on purpose: .env is the
     documented, per-project way to set or rotate credentials (see README), while an
     inherited $env:SPOTIFY_CLIENT_* value may be a stale User/Machine-level variable set
     during initial setup (see docs/Spotify-API-Guide.md) that never gets updated again.
     Without this order, regenerating the client secret in the Spotify dashboard and
     updating .env would silently keep using the old, now-invalid secret.
+
+    The current-directory .env only helps when a command is run from the project folder.
+    Bare aliases (play, next, ...) are usually run from anywhere, so credentials taken
+    from the current-directory .env or typed at the prompt are persisted to the fixed
+    %APPDATA%\SpotifyCLI\.env, which is found regardless of the working directory.
     #>
     param([string]$ClientId, [string]$ClientSecret)
 
+    $persist = $false
+
     if (-not $ClientId -or -not $ClientSecret) {
-        $envFile = Join-Path (Get-Location) ".env"
-        if (Test-Path $envFile) {
-            Get-Content $envFile | ForEach-Object {
-                if ($_ -match "^(.*?)=(.*)$") {
-                    $key = $matches[1].Trim()
-                    $val = $matches[2].Trim()
-                    if ($key -eq "SPOTIFY_CLIENT_ID"     -and -not $ClientId)     { $ClientId     = $val }
-                    if ($key -eq "SPOTIFY_CLIENT_SECRET" -and -not $ClientSecret) { $ClientSecret = $val }
-                }
-            }
-        }
+        $local = Read-CredentialsFile (Join-Path (Get-Location) ".env")
+        if (-not $ClientId     -and $local.SPOTIFY_CLIENT_ID)     { $ClientId     = $local.SPOTIFY_CLIENT_ID;     $persist = $true }
+        if (-not $ClientSecret -and $local.SPOTIFY_CLIENT_SECRET) { $ClientSecret = $local.SPOTIFY_CLIENT_SECRET; $persist = $true }
+    }
+
+    if (-not $ClientId -or -not $ClientSecret) {
+        $stored = Read-CredentialsFile $script:CredentialsFile
+        if (-not $ClientId)     { $ClientId     = $stored.SPOTIFY_CLIENT_ID }
+        if (-not $ClientSecret) { $ClientSecret = $stored.SPOTIFY_CLIENT_SECRET }
     }
 
     if (-not $ClientId)     { $ClientId     = $env:SPOTIFY_CLIENT_ID }
@@ -62,9 +80,20 @@ function Initialize-SpotifyCredentials {
         Write-Host "Get them at: https://developer.spotify.com/dashboard" -ForegroundColor Cyan
         Write-Host ""
         $ClientId = Read-Host "Enter SPOTIFY_CLIENT_ID"
+        $persist = $true
     }
     if (-not $ClientSecret) {
         $ClientSecret = Read-Host "Enter SPOTIFY_CLIENT_SECRET"
+        $persist = $true
+    }
+
+    if ($persist -and $ClientId -and $ClientSecret) {
+        $stored = Read-CredentialsFile $script:CredentialsFile
+        if ($stored.SPOTIFY_CLIENT_ID -ne $ClientId -or $stored.SPOTIFY_CLIENT_SECRET -ne $ClientSecret) {
+            Initialize-TokenStore
+            @("SPOTIFY_CLIENT_ID=$ClientId", "SPOTIFY_CLIENT_SECRET=$ClientSecret") |
+                Set-Content -Path $script:CredentialsFile -Encoding UTF8
+        }
     }
 
     $script:ClientId     = $ClientId

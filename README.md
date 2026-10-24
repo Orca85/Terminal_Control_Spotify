@@ -22,7 +22,7 @@ Install-Module SpotifyCLI -Scope CurrentUser
 Start-SpotifyCLI
 ```
 
-On first run you'll be prompted for your Client ID and Client Secret, then a browser window opens for Spotify login. Tokens are saved automatically — no login needed on future runs.
+On first run you'll be prompted for your Client ID and Client Secret, then a browser window opens for Spotify login. Credentials are saved to `%APPDATA%\SpotifyCLI\.env` and tokens to `%APPDATA%\SpotifyCLI\tokens.json`, so commands like `play`/`next` work from any folder without prompting again.
 
 **Tip:** To skip the prompt, set env vars before calling `Start-SpotifyCLI`:
 
@@ -32,7 +32,7 @@ $env:SPOTIFY_CLIENT_SECRET = "your_client_secret"
 Start-SpotifyCLI
 ```
 
-Or place a `.env` file in your working directory:
+Or place a `.env` file in your working directory (it takes precedence and is copied to `%APPDATA%\SpotifyCLI\.env`, so rotating a secret there updates the stored copy too):
 
 ```
 SPOTIFY_CLIENT_ID=your_client_id
