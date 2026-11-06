@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.15'
+    ModuleVersion = '3.2.16'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -170,6 +170,20 @@
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.16
+- fix: `play` said "Started playing" while nothing played. Spotify accepts but silently ignores a
+  bare single-track request (`uris`), while a request with a context (`context_uri` + `offset`)
+  loads. `play`, `play <n|uri>`, `recent <n>` and picking a single track in interactive lists now
+  play the track inside its playlist/album/show.
+- fix: `play` with nothing loaded goes straight to your most recent track (in the context it was
+  played from) instead of trying to resume nothing; with something loaded it resumes on that
+  device; when already playing it says so.
+- fix: when no device is active, playback goes to this computer ($env:COMPUTERNAME) instead of
+  the first device in the list, is sent to that device explicitly, retried once, and only reported
+  as started once Spotify confirms it. Otherwise it suggests `devices` + `swap <n>`.
+- fix: `swap`/`transfer` keeps the music playing when switching device (it could stop before) and
+  confirms which device took over. The `devices` tip mentions `swap`.
+
 v3.2.15
 - feat: `peak` now prints track insights (popularity, followers, duration, album, genres) in the
   terminal; `peak -Watch` keeps it updated with a popularity graph for recent tracks. The window

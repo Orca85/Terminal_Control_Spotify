@@ -295,7 +295,11 @@ function Play-SpotifyItem {
                 throw "No URI found for item"
             }
 
-            $body = @{ uris = @($uri) }
+            # Play inside a context: Spotify can silently ignore a bare `uris` request
+            $contextUri = if ($Item.album.uri) { $Item.album.uri }
+                          elseif ($Item.track -and $Item.track.album.uri) { $Item.track.album.uri }
+                          elseif ($Item.show.uri) { $Item.show.uri }
+            $body = if ($contextUri) { @{ context_uri = $contextUri; offset = @{ uri = $uri } } } else { @{ uris = @($uri) } }
 
             # Get display name
             $name = if ($Item.name) { $Item.name } elseif ($Item.track) { $Item.track.name } else { "Unknown" }

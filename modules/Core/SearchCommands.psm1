@@ -32,7 +32,7 @@ function devices {
             $i++
         }
         Write-Host ""
-        Write-Host "💡 Tip: Use 'transfer 1' to switch to device #1" -ForegroundColor Gray
+        Write-Host "💡 Tip: Use 'swap 1' (or 'transfer 1') to switch to device #1" -ForegroundColor Gray
     }
     catch {
         $errorMessage = $_.Exception.Message

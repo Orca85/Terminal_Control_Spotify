@@ -55,6 +55,63 @@ function Start-SpotifyIfNeeded {
     return $false
 }
 
+# --- Device selection helper ---
+function Select-SpotifyPlaybackDevice {
+    <#
+    .SYNOPSIS
+    Pick the device to start playback on when nothing is active.
+    Order: active device > this computer (name = $env:COMPUTERNAME) > first unrestricted device.
+    #>
+    param($Devices)
+    $usable = @($Devices | Where-Object { -not $_.is_restricted })
+    if (-not $usable) { $usable = @($Devices) }
+    $active = $usable | Where-Object { $_.is_active } | Select-Object -First 1
+    if ($active) { return $active }
+    $local = $usable | Where-Object { $_.name -eq $env:COMPUTERNAME } | Select-Object -First 1
+    if ($local) { return $local }
+    return $usable | Select-Object -First 1
+}
+
+# --- Playback verification helper ---
+function Test-SpotifyPlaybackStarted {
+    <#
+    .SYNOPSIS
+    Returns $true once Spotify reports that something is playing (polls up to ~3 seconds).
+    #>
+    for ($i = 0; $i -lt 6; $i++) {
+        Start-Sleep -Milliseconds 500
+        try {
+            $state = Invoke-SpotifyApi -Method GET -Path "/me/player"
+            if ($state -and $state.is_playing -and $state.item) { return $true }
+        } catch { }
+    }
+    return $false
+}
+
+function Write-PlaybackNotStartedHint {
+    param([string]$DeviceName)
+    Write-Host "⚠️ Spotify accepted the command, but playback did not start on '$DeviceName'." -ForegroundColor Yellow
+    Write-Host "💡 Try 'play' again, or run 'devices' and 'swap <n>' to use another device." -ForegroundColor Cyan
+}
+
+function Start-SpotifyPlaybackOnDevice {
+    <#
+    .SYNOPSIS
+    Send a play request to a specific device and confirm it started. Retries once, because a device
+    that was just activated can drop the first request.
+    #>
+    param([Parameter(Mandatory)]$Device, [hashtable]$Body)
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        if ($Body) {
+            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Query @{ device_id = $Device.id } -Body $Body | Out-Null
+        } else {
+            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Query @{ device_id = $Device.id } | Out-Null
+        }
+        if (Test-SpotifyPlaybackStarted) { return $true }
+    }
+    return $false
+}
+
 # --- Notification Helper ---
 function Show-TrackNotification {
     <#
@@ -146,6 +203,63 @@ function Show-TrackNotification {
     }
 }
 
+function Get-SpotifyPlayBody {
+    <#
+    .SYNOPSIS
+    Build a /me/player/play body that starts $Uri inside a context (playlist/album/show).
+    Spotify accepts but silently ignores a bare `uris = [track]` request in some cases, while
+    `context_uri` + `offset` always loads, so a context is used whenever one can be found.
+    #>
+    param([Parameter(Mandatory)][string]$Uri, [string]$ContextUri)
+    if ($ContextUri) {
+        return @{ context_uri = $ContextUri; offset = @{ uri = $Uri } }
+    }
+    try {
+        $id = $Uri.Split(':')[-1]
+        if ($Uri.StartsWith('spotify:track:')) {
+            $album = (Invoke-SpotifyApi -Method GET -Path "/tracks/$id").album.uri
+            if ($album) { return @{ context_uri = $album; offset = @{ uri = $Uri } } }
+        } elseif ($Uri.StartsWith('spotify:episode:')) {
+            $show = (Invoke-SpotifyApi -Method GET -Path "/episodes/$id").show.uri
+            if ($show) { return @{ context_uri = $show; offset = @{ uri = $Uri } } }
+        }
+    } catch { }
+    return @{ uris = @($Uri) }
+}
+
+function Get-SpotifyTargetDevice {
+    <#
+    .SYNOPSIS
+    Find a device to play on (starting Spotify if none exist) and make it active. Returns $null on failure.
+    #>
+    $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
+    if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
+        if (-not (Start-SpotifyIfNeeded)) { return $null }
+        $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
+        if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
+            Write-Host "❌ Still no devices available." -ForegroundColor Red
+            return $null
+        }
+    }
+    $device = Select-SpotifyPlaybackDevice $devicesResponse.devices
+    if (-not $device.is_active) {
+        Write-Host "🔄 Activating device: $($device.name)..." -ForegroundColor Cyan
+        Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body @{ device_ids = @($device.id); play = $false } | Out-Null
+        Start-Sleep -Milliseconds 500
+    }
+    return $device
+}
+
+function Show-PlayNotification {
+    Start-Sleep -Milliseconds 300
+    try {
+        $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
+        if ($currentTrack -and $currentTrack.item) {
+            Show-TrackNotification -TrackInfo $currentTrack.item -Action 'play'
+        }
+    } catch { }
+}
+
 function play {
     param([string]$TrackReference)
 
@@ -180,125 +294,69 @@ function play {
         }
 
         try {
-            # Try to play on active device first
-            $body = @{ uris = @($trackUri) }
-            Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
+            $device = Get-SpotifyTargetDevice
+            if (-not $device) { return }
+            $contextUri = if ($item -and $item.album.uri) { $item.album.uri } else { $null }
+            $body = Get-SpotifyPlayBody -Uri $trackUri -ContextUri $contextUri
+            if (-not (Start-SpotifyPlaybackOnDevice -Device $device -Body $body)) {
+                Write-PlaybackNotStartedHint $device.name
+                return
+            }
             if ($trackUri.StartsWith("spotify:episode:")) {
                 Write-Host "▶️ Playing podcast episode" -ForegroundColor Magenta
             } else {
                 Write-Host "▶️ Playing track" -ForegroundColor Green
             }
-            # Show notification
-            Start-Sleep -Milliseconds 300
-            try {
-                $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-                if ($currentTrack -and $currentTrack.item) {
-                    Show-TrackNotification -TrackInfo $currentTrack.item -Action 'play'
-                }
-            } catch { }
+            Show-PlayNotification
         }
         catch {
-            # If no active device, try to activate one
-            Write-Host "🎵 No active device. Looking for available devices..." -ForegroundColor Yellow
-            try {
-                $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
-                if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-                    # No devices found - try to start Spotify automatically
-                    if (-not (Start-SpotifyIfNeeded)) {
-                        return
-                    }
-                    # Re-fetch devices after starting Spotify
-                    $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
-                    if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-                        Write-Host "❌ Still no devices available." -ForegroundColor Red
-                        return
-                    }
-                }
-
-                $firstDevice = $devicesResponse.devices[0]
-                Write-Host "🔄 Activating device: $($firstDevice.name)..." -ForegroundColor Cyan
-                $transferBody = @{ device_ids = @($firstDevice.id); play = $false }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody | Out-Null
-                Start-Sleep -Milliseconds 500
-
-                # Try again to play
-                $body = @{ uris = @($trackUri) }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
-                if ($trackUri.StartsWith("spotify:episode:")) {
-                    Write-Host "▶️ Playing podcast episode" -ForegroundColor Magenta
-                } else {
-                    Write-Host "▶️ Playing track" -ForegroundColor Green
-                }
-                # Show notification
-                Start-Sleep -Milliseconds 300
-                try {
-                    $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-                    if ($currentTrack -and $currentTrack.item) {
-                        Show-TrackNotification -TrackInfo $currentTrack.item -Action 'play'
-                    }
-                } catch { }
-            }
-            catch {
-                Write-Host "❌ Could not play track: $($_.Exception.Message)" -ForegroundColor Red
-            }
+            Write-Host "❌ Could not play track: $($_.Exception.Message)" -ForegroundColor Red
         }
         return
     }
 
-    # Path 1: Resume playback or play recent
+    # Path 1: Resume what is loaded, otherwise start from the most recent track
     try {
-        Invoke-SpotifyApi -Method PUT -Path "/me/player/play" | Out-Null
-        Write-Host "▶️ Resumed playback" -ForegroundColor Green
-        # Show notification with current track
-        Start-Sleep -Milliseconds 300
-        try {
-            $currentTrack = Invoke-SpotifyApi -Method GET -Path "/me/player/currently-playing"
-            if ($currentTrack -and $currentTrack.item) {
-                Show-TrackNotification -TrackInfo $currentTrack.item -Action 'play'
+        $state = $null
+        try { $state = Invoke-SpotifyApi -Method GET -Path "/me/player" } catch { }
+
+        if ($state -and $state.is_playing -and $state.item) {
+            Write-Host "▶️ Already playing: $($state.item.name)" -ForegroundColor Green
+            return
+        }
+
+        if ($state -and $state.item -and $state.device) {
+            if (Start-SpotifyPlaybackOnDevice -Device $state.device) {
+                Write-Host "▶️ Resumed playback" -ForegroundColor Green
+                Show-PlayNotification
+            } else {
+                Write-PlaybackNotStartedHint $state.device.name
             }
-        } catch { }
+            return
+        }
+
+        # Nothing loaded anywhere: play the most recent track in its original context
+        Write-Host "🎵 Nothing loaded. Starting from your most recent track..." -ForegroundColor Yellow
+        $recent = Invoke-SpotifyApi -Method GET -Path "/me/player/recently-played" -Query @{ limit = 1 }
+        if (-not $recent -or -not $recent.items -or $recent.items.Count -eq 0) {
+            Write-Host "❌ No recent tracks found to play." -ForegroundColor Red
+            return
+        }
+        $lastItem = $recent.items[0]
+        $lastTrack = $lastItem.track
+
+        $device = Get-SpotifyTargetDevice
+        if (-not $device) { return }
+        $body = Get-SpotifyPlayBody -Uri $lastTrack.uri -ContextUri $lastItem.context.uri
+        if (-not (Start-SpotifyPlaybackOnDevice -Device $device -Body $body)) {
+            Write-PlaybackNotStartedHint $device.name
+            return
+        }
+        Write-Host "▶️ Started playing: $($lastTrack.name) by $(($lastTrack.artists | ForEach-Object { $_.name }) -join ', ')" -ForegroundColor Green
+        Show-PlayNotification
     }
     catch {
-        # This is the expected error when nothing is active.
-        # Now we try to be smart and play a recent track.
-        Write-Host "🎵 No active playback found. Trying to start from your recent tracks..." -ForegroundColor Yellow
-        try {
-            $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
-            if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-                # No devices found - try to start Spotify automatically
-                if (-not (Start-SpotifyIfNeeded)) {
-                    return
-                }
-                # Re-fetch devices after starting Spotify
-                $devicesResponse = Invoke-SpotifyApi -Method GET -Path "/me/player/devices"
-                if (-not $devicesResponse -or -not $devicesResponse.devices -or $devicesResponse.devices.Count -eq 0) {
-                    Write-Host "❌ Still no devices available." -ForegroundColor Red
-                    return
-                }
-            }
-
-            $activeDevice = $devicesResponse.devices | Where-Object { $_.is_active -eq $true } | Select-Object -First 1
-            if (-not $activeDevice) {
-                $firstDevice = $devicesResponse.devices[0]
-                Write-Host "🔄 Activating device: $($firstDevice.name)..." -ForegroundColor Cyan
-                $transferBody = @{ device_ids = @($firstDevice.id); play = $false }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $transferBody | Out-Null
-                Start-Sleep -Milliseconds 500
-            }
-
-            $recentTracks = Invoke-SpotifyApi -Method GET -Path "/me/player/recently-played" -Query @{ limit = 1 }
-            if ($recentTracks -and $recentTracks.items -and $recentTracks.items.Count -gt 0) {
-                $lastTrack = $recentTracks.items[0].track
-                $body = @{ uris = @($lastTrack.uri) }
-                Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
-                Write-Host "▶️ Started playing: $($lastTrack.name) by $(($lastTrack.artists | ForEach-Object { $_.name }) -join ', ')" -ForegroundColor Green
-            } else {
-                Write-Host "❌ No recent tracks found to play." -ForegroundColor Red
-            }
-        }
-        catch {
-            Write-Host "❌ Could not start playback: $($_.Exception.Message)" -ForegroundColor Red
-        }
+        Write-Host "❌ Could not start playback: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
@@ -686,10 +744,26 @@ function transfer {
              Write-Host "🎯 Transferring to device '$($deviceName)' ($actualDeviceId)..." -ForegroundColor Cyan
         }
 
-        $body = @{ device_ids = @($actualDeviceId) }
+        # Keep playing after the switch if something was playing before (Spotify may pause otherwise)
+        $wasPlaying = $false
+        try { $wasPlaying = [bool](Invoke-SpotifyApi -Method GET -Path "/me/player").is_playing } catch { }
+
+        $body = @{ device_ids = @($actualDeviceId); play = $wasPlaying }
         Invoke-SpotifyApi -Method PUT -Path "/me/player" -Body $body | Out-Null
 
-        Write-Host "📱 Playback successfully transferred to '$($deviceName)'" -ForegroundColor Green
+        # Confirm where playback ended up
+        $state = $null
+        for ($i = 0; $i -lt 6; $i++) {
+            Start-Sleep -Milliseconds 500
+            try { $state = Invoke-SpotifyApi -Method GET -Path "/me/player" } catch { }
+            if ($state -and $state.device.id -eq $actualDeviceId -and ($state.is_playing -or -not $wasPlaying)) { break }
+        }
+        if ($state -and $state.device.id -eq $actualDeviceId) {
+            $status = if ($state.is_playing) { 'playing' } else { 'paused' }
+            Write-Host "📱 Now on '$($state.device.name)' ($status)" -ForegroundColor Green
+        } else {
+            Write-Host "⚠️ Spotify accepted the switch, but '$deviceName' has not taken over yet. Run 'devices' to check." -ForegroundColor Yellow
+        }
     }
     catch {
         $errorMessage = $_.Exception.Message

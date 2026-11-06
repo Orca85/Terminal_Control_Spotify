@@ -1227,7 +1227,11 @@ function recent {
             }
 
             if ($uri) {
-                $body = @{ uris = @($uri) }
+                # Play inside a context: Spotify can silently ignore a bare `uris` request
+                $contextUri = if ($selectedItem.context.uri) { $selectedItem.context.uri }
+                              elseif ($selectedItem.track.album.uri) { $selectedItem.track.album.uri }
+                              elseif ($selectedItem.episode.show.uri) { $selectedItem.episode.show.uri }
+                $body = if ($contextUri) { @{ context_uri = $contextUri; offset = @{ uri = $uri } } } else { @{ uris = @($uri) } }
                 Invoke-SpotifyApi -Method PUT -Path "/me/player/play" -Body $body | Out-Null
             }
             return
