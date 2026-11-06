@@ -425,6 +425,148 @@ try {
     Write-Host "Dashboard updates automatically when song changes" -ForegroundColor Cyan
 }
 
-Set-Alias -Name peak -Value Show-PeakDashboard -ErrorAction SilentlyContinue
+function Get-SpotifyPeakInfo {
+    <#
+    .SYNOPSIS
+    Get track and artist insights for the currently playing track
+    .DESCRIPTION
+    Returns $null when nothing is playing. Pass -ArtistData to reuse an earlier artist lookup.
+    #>
+    param($ArtistData)
 
-Export-ModuleMember -Function @('Show-PeakDashboard') -Alias @('peak')
+    $playback = Invoke-SpotifyApi -Method GET -Path '/me/player' -ErrorAction SilentlyContinue
+    if (-not $playback -or -not $playback.item) { return $null }
+    $item = $playback.item
+
+    $artistId = $item.artists[0].id
+    if (-not $ArtistData -or $ArtistData.id -ne $artistId) {
+        $ArtistData = $null
+        if ($artistId) {
+            try { $ArtistData = Invoke-SpotifyApi -Method GET -Path "/artists/$artistId" -ErrorAction SilentlyContinue } catch { }
+        }
+    }
+
+    [PSCustomObject]@{
+        Uri         = $item.uri
+        Track       = $item.name
+        Artists     = ($item.artists | ForEach-Object { $_.name }) -join ', '
+        IsPlaying   = [bool]$playback.is_playing
+        TrackPop    = [int]$item.popularity
+        ArtistPop   = if ($ArtistData) { [int]$ArtistData.popularity } else { $null }
+        Followers   = if ($ArtistData) { [long]$ArtistData.followers.total } else { $null }
+        Genres      = if ($ArtistData) { @($ArtistData.genres) } else { @() }
+        DurationMs  = [long]$item.duration_ms
+        Album       = $item.album.name
+        ReleaseDate = $item.album.release_date
+        TrackNumber = $item.track_number
+        TotalTracks = $item.album.total_tracks
+        Explicit    = [bool]$item.explicit
+        ArtistData  = $ArtistData
+    }
+}
+
+function Write-SpotifyPeakInfo {
+    param($Info, [int[]]$History)
+
+    function Format-PeakNumber([long]$n) {
+        if ($n -ge 1000000) { return "{0:N1}M" -f ($n / 1000000) }
+        if ($n -ge 1000) { return "{0:N1}K" -f ($n / 1000) }
+        return $n.ToString('N0')
+    }
+    function Write-PeakBar([string]$label, $value) {
+        $width = 30
+        Write-Host ("  {0,-12} " -f $label) -ForegroundColor DarkGray -NoNewline
+        if ($null -eq $value) { Write-Host '---' -ForegroundColor DarkGray; return }
+        $filled = [int][Math]::Round([Math]::Min(100, [Math]::Max(0, $value)) / 100 * $width)
+        Write-Host ([string][char]0x2588 * $filled) -ForegroundColor Cyan -NoNewline
+        Write-Host ([string][char]0x2591 * ($width - $filled)) -ForegroundColor DarkGray -NoNewline
+        Write-Host ("  {0,3}/100" -f $value) -ForegroundColor White
+    }
+    function Write-PeakRow([string]$label, [string]$text, [string]$color = 'White') {
+        Write-Host ("  {0,-12} " -f $label) -ForegroundColor DarkGray -NoNewline
+        Write-Host $text -ForegroundColor $color
+    }
+
+    Write-Host ''
+    Write-Host "  $($Info.Track)" -ForegroundColor Cyan -NoNewline
+    if ($Info.Explicit) { Write-Host '  EXPLICIT' -ForegroundColor Magenta -NoNewline }
+    Write-Host ''
+    Write-Host "  $($Info.Artists)" -ForegroundColor Gray
+    Write-Host ''
+    Write-PeakBar 'Track pop.' $Info.TrackPop
+    Write-PeakBar 'Artist pop.' $Info.ArtistPop
+    Write-Host ''
+    Write-PeakRow 'Followers' $(if ($null -ne $Info.Followers) { Format-PeakNumber $Info.Followers } else { '---' }) 'Yellow'
+    $duration = [TimeSpan]::FromMilliseconds($Info.DurationMs)
+    Write-PeakRow 'Duration' ('{0}:{1:D2}' -f [int][Math]::Floor($duration.TotalMinutes), $duration.Seconds)
+    Write-PeakRow 'Album' $Info.Album
+    Write-PeakRow '' "Released $($Info.ReleaseDate)  |  Track $($Info.TrackNumber) of $($Info.TotalTracks)" 'DarkGray'
+    Write-PeakRow 'Genres' $(if ($Info.Genres.Count) { ($Info.Genres | Select-Object -First 4) -join ', ' } else { 'n/a' }) 'Cyan'
+
+    if ($History -and $History.Count) {
+        $blocks = 0x2581..0x2588 | ForEach-Object { [char]$_ }
+        $graph = ($History | ForEach-Object { $blocks[[Math]::Min(7, [Math]::Max(0, [int]($_ / 100 * 7.99)))] }) -join ' '
+        Write-Host ''
+        Write-PeakRow 'Last tracks' $graph 'Cyan'
+    }
+    Write-Host ''
+}
+
+function Show-SpotifyPeak {
+    <#
+    .SYNOPSIS
+    Show track insights for the current track in the terminal (popularity, followers, album, genres)
+    .PARAMETER Watch
+    Keep updating every 2 seconds, with a popularity graph for recent tracks. Ctrl+C to stop.
+    .EXAMPLE
+    peak
+    .EXAMPLE
+    peak -Watch
+    .EXAMPLE
+    showpeak
+    Opens the same information in a window instead
+    #>
+    param([switch]$Watch)
+
+    if (-not $Watch) {
+        $info = Get-SpotifyPeakInfo
+        if (-not $info) { Write-Host 'No track playing' -ForegroundColor Yellow; return }
+        Write-SpotifyPeakInfo $info
+        return
+    }
+
+    $history = [System.Collections.Generic.List[int]]::new()
+    $artistData = $null
+    $lastUri = $null
+    $info = $null
+    while ($true) {
+        try {
+            $fresh = Get-SpotifyPeakInfo -ArtistData $artistData
+            if ($fresh) {
+                $info = $fresh
+                $artistData = $fresh.ArtistData
+                if ($fresh.Uri -ne $lastUri) {
+                    $lastUri = $fresh.Uri
+                    $history.Add($fresh.TrackPop)
+                    if ($history.Count -gt 10) { $history.RemoveAt(0) }
+                }
+            }
+        } catch { }
+
+        Clear-Host
+        if ($info) {
+            Write-SpotifyPeakInfo $info $history.ToArray()
+            $state = if ($info.IsPlaying) { 'Playing' } else { 'Paused' }
+            Write-Host "  $state  |  Updated $(Get-Date -Format 'HH:mm:ss')  |  Ctrl+C to stop" -ForegroundColor DarkGray
+        } else {
+            Write-Host ''
+            Write-Host '  No track playing  |  Ctrl+C to stop' -ForegroundColor Yellow
+        }
+        Start-Sleep -Seconds 2
+    }
+}
+
+Set-Alias -Name peak -Value Show-SpotifyPeak -ErrorAction SilentlyContinue
+Set-Alias -Name showpeak -Value Show-PeakDashboard -ErrorAction SilentlyContinue
+
+Export-ModuleMember -Function @('Show-PeakDashboard', 'Show-SpotifyPeak', 'Get-SpotifyPeakInfo') -Alias @('peak', 'showpeak')

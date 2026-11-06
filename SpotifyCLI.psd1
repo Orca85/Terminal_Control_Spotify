@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.14'
+    ModuleVersion = '3.2.15'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -136,6 +136,8 @@
         'Show-LyricsForm',
         'Show-SpotifyLyricsForm',
         'Show-PeakDashboard',
+        'Show-SpotifyPeak',
+        'Get-SpotifyPeakInfo',
 
         'Start-MusicQuiz',
 
@@ -161,13 +163,18 @@
         'Set-StoredTokens',
         'Initialize-TokenStore'
     )
-    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'mix', 'rep', 'swap', 'q', 'pq', 'spotify', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'spcommands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
+    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'mix', 'rep', 'swap', 'q', 'pq', 'spotify', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'showpeak', 'setlist', 'spcommands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'Audio', 'Player', 'Terminal', 'PowerShell', 'NowPlaying', 'Playback', 'Lyrics', 'LiveDisplay', 'Statistics', 'Quiz', 'Setlist', 'PSModule')
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.15
+- feat: `peak` now prints track insights (popularity, followers, duration, album, genres) in the
+  terminal; `peak -Watch` keeps it updated with a popularity graph for recent tracks. The window
+  moved to `showpeak`. New Get-SpotifyPeakInfo returns the same data as an object.
+
 v3.2.14
 - feat: `spcommands` is now the main help, written for PowerShell: every shell command grouped by
   category, without `/`, with its aliases (read from the live session). `spcommands <command>` shows

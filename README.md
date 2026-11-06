@@ -163,7 +163,8 @@ Always-on-top WinForms window with track info, progress bar, and playback contro
 | Command | Aliases | Description |
 | ------- | ------- | ----------- |
 | `Get-SpotifyListeningStatistics` | `stats` | Listening analytics in terminal |
-| `Show-PeakDashboard` | `peak` | WinForms analytics dashboard |
+| `Show-SpotifyPeak` | `peak` | Track insights in the terminal; `peak -Watch` keeps updating |
+| `Show-PeakDashboard` | `showpeak` | Track insights in a window |
 
 ```powershell
 stats
