@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.12'
+    ModuleVersion = '3.2.13'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -168,6 +168,14 @@
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.13
+- fix: `spcommands` now lists every alias (built from the live session instead of a hand-written
+  line that only showed three and listed `q` as quit).
+- fix: Get-SpotifyAliases/Test-AliasConflicts alias map now matches the module (added `stats`,
+  `live`, `live-music`).
+- fix: `spotify` now launches the Spotify app (Start-SpotifyApp) as documented, instead of showing
+  help. Use `spotify-help` for help.
+
 v3.2.12
 - fix: renamed generic aliases that hijacked other tools' commands: `commands` -> `spcommands`
   (broke `scoop update`), `sh` -> `mix`, `tr` -> `swap`. The module no longer overrides

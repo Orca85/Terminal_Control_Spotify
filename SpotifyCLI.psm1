@@ -61,8 +61,22 @@ function Show-AllSpotifyCommands {
     Write-Host "    /commands                   This list" -ForegroundColor Gray
     Write-Host "    /quit                       Exit the CLI" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  ALIASES" -ForegroundColor Yellow
-    Write-Host "    pn, plays-now = /spotify    pq = /play-queue    q = /quit" -ForegroundColor DarkGray
+    Write-Host "  ALIASES (PowerShell)" -ForegroundColor Yellow
+    # Built from the live session: every alias that points to a command this module exports,
+    # so the list can never drift from what is actually defined.
+    $moduleCommands = @($ExecutionContext.SessionState.Module.ExportedCommands.Keys)
+    $groups = Get-Alias -ErrorAction SilentlyContinue |
+        Where-Object { $moduleCommands -contains $_.Definition } |
+        Group-Object Definition |
+        Sort-Object Name
+    foreach ($group in $groups) {
+        $names = ($group.Group.Name | Sort-Object Length, Name) -join ', '
+        Write-Host ("    {0,-28}" -f $names) -ForegroundColor Gray -NoNewline
+        Write-Host $group.Name -ForegroundColor DarkGray
+    }
+    Write-Host ""
+    Write-Host "  INSIDE Start-SpotifyCLI" -ForegroundColor Yellow
+    Write-Host "    q, exit                     /quit" -ForegroundColor Gray
     Write-Host ""
 }
 New-Alias -Name 'spcommands' -Value 'Show-AllSpotifyCommands' -Force
@@ -2202,7 +2216,7 @@ function Get-SpotifyHelp {
     Invoke-HelpCommand $Command
 }
 
-Set-Alias -Name spotify -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
+Set-Alias -Name spotify -Value Start-SpotifyApp -Force -ErrorAction SilentlyContinue
 
 Set-Alias -Name spotify-help -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
 

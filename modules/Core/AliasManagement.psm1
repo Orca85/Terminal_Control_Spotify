@@ -1,7 +1,8 @@
 # AliasManagement Module
 # Functions for listing, removing, and checking Spotify CLI aliases.
 
-# All known Spotify CLI aliases (from psd1 AliasesToExport + SpotifyCommands.psm1)
+# All known Spotify CLI aliases (psd1 AliasesToExport + the global 'sp' set in SpotifyCLI.psm1).
+# Keep in sync with AliasesToExport; spcommands builds its list from the live session instead.
 $script:KnownSpotifyAliases = @{
     'plays-now'    = 'Show-SpotifyTrack'
     'music'        = 'Show-SpotifyTrack'
@@ -24,6 +25,9 @@ $script:KnownSpotifyAliases = @{
     'spcommands'   = 'Show-AllSpotifyCommands'
     'ss'           = 'Show-SpotifyForm'
     'ShowSpotify'  = 'Show-SpotifyForm'
+    'stats'        = 'Get-SpotifyListeningStatistics'
+    'live'         = 'Start-SpotifyLiveDisplay'
+    'live-music'   = 'Start-SpotifyLiveDisplay'
 }
 
 function Get-SpotifyAliases {

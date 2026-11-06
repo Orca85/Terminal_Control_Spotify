@@ -200,7 +200,7 @@ fav        # Mark current track as favorite
 
 | Command | Aliases | Description |
 | ------- | ------- | ----------- |
-| `Get-SpotifyHelp` | `spotify`, `spotify-help` | Show all commands |
+| `Get-SpotifyHelp` | `spotify-help` | Show all commands |
 | `Show-AllSpotifyCommands` | `spcommands` | Compact command list |
 | `Start-SpotifyApp` | `spotify` | Launch Spotify desktop app |
 | `copy-track-link` | | Copy current track URL |
