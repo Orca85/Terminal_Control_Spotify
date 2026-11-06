@@ -33,12 +33,11 @@ $script:DefaultConfig = @{
         'pn' = 'Show-SpotifyTrack'
         'sp' = 'Show-SpotifyTrack'
         'vol' = 'volume'
-        'sh' = 'shuffle'
+        'mix' = 'shuffle'
         'rep' = 'repeat'
-        'tr' = 'transfer'
+        'swap' = 'transfer'
         'q' = 'queue'
         'pl' = 'playlists'
-        'help' = 'Get-SpotifyHelp'
     }
 }
 

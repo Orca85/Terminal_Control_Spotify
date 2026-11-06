@@ -345,7 +345,8 @@ function Uninstall-SpotifyCli {
     # Step 4: Remove session aliases
     $allAliases = @('plays-now','music','pn','sp','pl','vol','sh','rep','tr','q','pq',
                     'spotify','help','spotify-help','slw','ShowLyrics','quiz','peak',
-                    'setlist','commands','ss','ShowSpotify')
+                    'setlist','commands','ss','ShowSpotify',
+                    'spcommands','mix','swap')
     $removedAliases = 0
     foreach ($alias in $allAliases) {
         if (Get-Alias -Name $alias -ErrorAction SilentlyContinue) {

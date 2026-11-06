@@ -72,7 +72,7 @@ To clean up a previous installation:
 | `volume-low` / `volume-medium` / `volume-high` | | Volume presets |
 | `seek` | | Seek forward/backward (seconds) |
 | `skip-forward` / `skip-back` | | Jump 15 seconds forward/back |
-| `shuffle` | `sh` | Toggle or set shuffle mode |
+| `shuffle` | `mix` | Toggle or set shuffle mode |
 | `repeat` | `rep` | Set repeat (off/track/context) |
 | `replay` | | Restart current track |
 
@@ -111,7 +111,7 @@ After searching, results are numbered. Use `play 1`, `queue 2`, etc. to act on t
 | Command | Aliases | Description |
 | ------- | ------- | ----------- |
 | `devices` | | List available devices |
-| `transfer` | `tr` | Switch playback to device |
+| `transfer` | `swap` | Switch playback to device |
 
 ### 🎮 Interactive Navigation
 
@@ -200,8 +200,8 @@ fav        # Mark current track as favorite
 
 | Command | Aliases | Description |
 | ------- | ------- | ----------- |
-| `Get-SpotifyHelp` | `help`, `spotify-help` | Show all commands |
-| `Show-AllSpotifyCommands` | `commands` | Compact command list |
+| `Get-SpotifyHelp` | `spotify`, `spotify-help` | Show all commands |
+| `Show-AllSpotifyCommands` | `spcommands` | Compact command list |
 | `Start-SpotifyApp` | `spotify` | Launch Spotify desktop app |
 | `copy-track-link` | | Copy current track URL |
 | `export-now-playing` | | Export track info to file |

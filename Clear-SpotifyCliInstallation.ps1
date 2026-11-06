@@ -206,7 +206,7 @@ function Clear-SpotifyCliInstallation {
     Write-Host ""
     Write-Host "[Bonus] Removing session aliases..." -ForegroundColor Yellow
 
-    $spotifyAliases = @('slw','ShowLyrics','plays-now','music','pn','sp','vol','sh','rep','tr','pl','q','spotify','help','spotify-help','peak','quiz','setlist','commands')
+    $spotifyAliases = @('slw','ShowLyrics','plays-now','music','pn','sp','vol','sh','rep','tr','pl','q','spotify','help','spotify-help','peak','quiz','setlist','commands','spcommands','mix','swap')
     $removedAliases = @()
     foreach ($alias in $spotifyAliases) {
         if (Get-Alias -Name $alias -ErrorAction SilentlyContinue) {

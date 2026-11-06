@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.11'
+    ModuleVersion = '3.2.12'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -161,13 +161,18 @@
         'Set-StoredTokens',
         'Initialize-TokenStore'
     )
-    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'sh', 'rep', 'tr', 'q', 'pq', 'spotify', 'help', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'commands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
+    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'mix', 'rep', 'swap', 'q', 'pq', 'spotify', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'setlist', 'spcommands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'Audio', 'Player', 'Terminal', 'PowerShell', 'NowPlaying', 'Playback', 'Lyrics', 'LiveDisplay', 'Statistics', 'Quiz', 'Setlist', 'PSModule')
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.12
+- fix: renamed generic aliases that hijacked other tools' commands: `commands` -> `spcommands`
+  (broke `scoop update`), `sh` -> `mix`, `tr` -> `swap`. The module no longer overrides
+  PowerShell's built-in `help` (use `spotify-help`/`spotify`). Installer no longer uses AllScope.
+
 v3.2.11
 - fix: credentials are now also read from a fixed %APPDATA%\SpotifyCLI\.env and saved there once
   found in the current-directory .env or typed at the prompt, so `play`/`next` run from any folder

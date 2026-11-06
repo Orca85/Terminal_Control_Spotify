@@ -9,20 +9,19 @@ $script:KnownSpotifyAliases = @{
     'sp'           = 'Show-SpotifyTrack'
     'pl'           = 'playlists'
     'vol'          = 'volume'
-    'sh'           = 'shuffle'
+    'mix'          = 'shuffle'
     'rep'          = 'repeat'
-    'tr'           = 'transfer'
+    'swap'         = 'transfer'
     'q'            = 'queue'
     'pq'           = 'play-queue'
     'spotify'      = 'Start-SpotifyApp'
-    'help'         = 'Get-SpotifyHelp'
     'spotify-help' = 'Get-SpotifyHelp'
     'slw'          = 'Show-SpotifyLyricsForm'
     'ShowLyrics'   = 'Show-SpotifyLyricsForm'
     'quiz'         = 'Start-MusicQuiz'
     'peak'         = 'Show-PeakDashboard'
     'setlist'      = 'Invoke-SetlistCommand'
-    'commands'     = 'Show-AllSpotifyCommands'
+    'spcommands'   = 'Show-AllSpotifyCommands'
     'ss'           = 'Show-SpotifyForm'
     'ShowSpotify'  = 'Show-SpotifyForm'
 }
@@ -73,7 +72,7 @@ function Remove-SpotifyAlias {
     .PARAMETER Name
     The alias name to remove (must be a known Spotify CLI alias)
     .EXAMPLE
-    Remove-SpotifyAlias -Name 'help'
+    Remove-SpotifyAlias -Name 'spcommands'
     Remove-SpotifyAlias -Name 'sp'
     #>
     [CmdletBinding(SupportsShouldProcess)]

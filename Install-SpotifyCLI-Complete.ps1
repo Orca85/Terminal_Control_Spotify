@@ -10,7 +10,7 @@ Detta skript:
 4. Installerar till Documents\PowerShell\Modules\SpotifyCommands
 5. Skapar ett komplett modulmanifest (.psd1)
 6. Uppdaterar PowerShell-profilen
-7. Skapar alla alias med -Force -Option AllScope
+7. Skapar alla alias med -Force
 8. Verifierar installationen och genererar rapport
 
 .PARAMETER SkipCleanup
@@ -128,15 +128,15 @@ function Get-FallbackFunctions {
             @{ Function = 'next'; Aliases = @(); Description = 'Next track' }
             @{ Function = 'previous'; Aliases = @(); Description = 'Previous track' }
             @{ Function = 'volume'; Aliases = @('vol'); Description = 'Set volume' }
-            @{ Function = 'shuffle'; Aliases = @('sh'); Description = 'Toggle shuffle' }
+            @{ Function = 'shuffle'; Aliases = @('mix'); Description = 'Toggle shuffle' }
             @{ Function = 'repeat'; Aliases = @('rep'); Description = 'Set repeat mode' }
             @{ Function = 'devices'; Aliases = @(); Description = 'List devices' }
-            @{ Function = 'transfer'; Aliases = @('tr'); Description = 'Transfer playback' }
+            @{ Function = 'transfer'; Aliases = @('swap'); Description = 'Transfer playback' }
             @{ Function = 'search'; Aliases = @(); Description = 'Search Spotify' }
             @{ Function = 'playlists'; Aliases = @('pl'); Description = 'Show playlists' }
             @{ Function = 'queue'; Aliases = @('q'); Description = 'Show/manage queue' }
             @{ Function = 'Start-SpotifyApp'; Aliases = @('spotify'); Description = 'Launch Spotify' }
-            @{ Function = 'Get-SpotifyHelp'; Aliases = @('help', 'spotify-help'); Description = 'Show help' }
+            @{ Function = 'Get-SpotifyHelp'; Aliases = @('spotify-help'); Description = 'Show help' }
             @{ Function = 'Invoke-SpotifyApi'; Aliases = @(); Description = 'Core API function' }
         )
         TotalFunctions = 18
@@ -429,7 +429,7 @@ v$script:ModuleVersion - Windows Form Display Edition
 - NEW: Windows Form display (ss command) with live updates
 - NEW: Lyrics Form with synchronized highlighting (slw command)
 - Enhanced interactive mode with arrow key navigation
-- Improved alias management with -Force -Option AllScope
+- Improved alias management with -Force
 - PowerShell Gallery ready
 '@
         }
@@ -523,13 +523,12 @@ function Set-SpotifyAliases {
         'pn' = 'Show-SpotifyTrack'
         'sp' = 'Show-SpotifyTrack'
         'vol' = 'volume'
-        'sh' = 'shuffle'
+        'mix' = 'shuffle'
         'rep' = 'repeat'
-        'tr' = 'transfer'
+        'swap' = 'transfer'
         'pl' = 'playlists'
         'q' = 'queue'
         'spotify' = 'Start-SpotifyApp'
-        'help' = 'Get-SpotifyHelp'
         'spotify-help' = 'Get-SpotifyHelp'
     }
 
@@ -541,7 +540,7 @@ function Set-SpotifyAliases {
 
         if ($PSCmdlet.ShouldProcess($alias, "Skapa alias till $target")) {
             try {
-                Set-Alias -Name $alias -Value $target -Scope Global -Force -Option AllScope -ErrorAction Stop
+                Set-Alias -Name $alias -Value $target -Scope Global -Force -ErrorAction Stop
                 $createdCount++
             } catch {
                 # Om funktionen inte finns an, logga varning
@@ -594,7 +593,7 @@ function Test-Installation {
     $availableAliases = ($availableCommands | Where-Object CommandType -eq 'Alias').Name
 
     # Kolla aven globala alias vi skapade
-    $globalAliases = @('ss', 'slw', 'plays-now', 'music', 'pn', 'sp', 'vol', 'sh', 'rep', 'tr', 'pl', 'q', 'spotify', 'help', 'spotify-help', 'ShowSpotify', 'ShowLyrics')
+    $globalAliases = @('ss', 'slw', 'plays-now', 'music', 'pn', 'sp', 'vol', 'mix', 'rep', 'swap', 'pl', 'q', 'spotify', 'spotify-help', 'ShowSpotify', 'ShowLyrics')
     foreach ($alias in $globalAliases) {
         $existing = Get-Alias -Name $alias -ErrorAction SilentlyContinue
         if ($existing -and $alias -notin $availableAliases) {

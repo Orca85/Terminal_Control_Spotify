@@ -65,7 +65,7 @@ function Show-AllSpotifyCommands {
     Write-Host "    pn, plays-now = /spotify    pq = /play-queue    q = /quit" -ForegroundColor DarkGray
     Write-Host ""
 }
-New-Alias -Name 'commands' -Value 'Show-AllSpotifyCommands' -Force
+New-Alias -Name 'spcommands' -Value 'Show-AllSpotifyCommands' -Force
 
 # Live Features Integration Commands
 function Start-SpotifyLive {
@@ -2189,9 +2189,9 @@ try {
 }
 
 Set-Alias -Name vol -Value volume -Force -ErrorAction SilentlyContinue
-Set-Alias -Name sh -Value shuffle -Force -ErrorAction SilentlyContinue
+Set-Alias -Name mix -Value shuffle -Force -ErrorAction SilentlyContinue
 Set-Alias -Name rep -Value repeat -Force -ErrorAction SilentlyContinue
-Set-Alias -Name tr -Value transfer -Force -ErrorAction SilentlyContinue
+Set-Alias -Name swap -Value transfer -Force -ErrorAction SilentlyContinue
 Set-Alias -Name q -Value queue -Force -ErrorAction SilentlyContinue
 Set-Alias -Name pq -Value play-queue -Force -ErrorAction SilentlyContinue
 Set-Alias -Name pl -Value playlists -Force -ErrorAction SilentlyContinue
@@ -2203,14 +2203,6 @@ function Get-SpotifyHelp {
 }
 
 Set-Alias -Name spotify -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
-
-# Override PowerShell built-in 'help' function
-try {
-    Remove-Item -Path Alias:\help -Force -ErrorAction SilentlyContinue
-    Set-Alias -Name help -Value Get-SpotifyHelp -Force -Scope Global -ErrorAction SilentlyContinue
-} catch {
-    Write-Verbose "Could not override 'help' alias: $($_.Exception.Message)"
-}
 
 Set-Alias -Name spotify-help -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
 
