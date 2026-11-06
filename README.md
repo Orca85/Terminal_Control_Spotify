@@ -165,6 +165,8 @@ Always-on-top WinForms window with track info, progress bar, and playback contro
 | `Get-SpotifyListeningStatistics` | `stats` | Listening analytics in terminal |
 | `Show-SpotifyPeak` | `peak` | Track insights in the terminal; `peak -Watch` keeps updating |
 | `Show-PeakDashboard` | `showpeak` | Track insights in a window |
+| `Show-SpotifyToday` | `today` | Today's listening: time, top artist, most played, plays per hour |
+| `Show-SpotifyArtist` | `artist` | Artist card (playing or `artist <name>`); `artist -Play <n>` plays a top track |
 
 ```powershell
 stats

@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.16'
+    ModuleVersion = '3.2.17'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -24,6 +24,7 @@
         'modules\Core\PlaylistQueueCommands.psm1',
         'modules\Quiz\QuizCommands.psm1',
         'modules\UI\PeakDashboard.psm1',
+        'modules\UI\SpotifyInsights.psm1',
         'modules\Core\SetlistCommands.psm1',
         'modules\Core\AliasManagement.psm1',
         'modules\Core\InstallationCommands.psm1',
@@ -136,6 +137,8 @@
         'Show-LyricsForm',
         'Show-SpotifyLyricsForm',
         'Show-PeakDashboard',
+        'Show-SpotifyToday',
+        'Show-SpotifyArtist',
         'Show-SpotifyPeak',
         'Get-SpotifyPeakInfo',
 
@@ -163,13 +166,22 @@
         'Set-StoredTokens',
         'Initialize-TokenStore'
     )
-    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'mix', 'rep', 'swap', 'q', 'pq', 'spotify', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'showpeak', 'setlist', 'spcommands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
+    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'mix', 'rep', 'swap', 'q', 'pq', 'spotify', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'showpeak', 'today', 'artist', 'setlist', 'spcommands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'Audio', 'Player', 'Terminal', 'PowerShell', 'NowPlaying', 'Playback', 'Lyrics', 'LiveDisplay', 'Statistics', 'Quiz', 'Setlist', 'PSModule')
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.17
+- feat: `peak` shows where the track and artist rank in your top lists (last 4 weeks), the
+  track's rank among the artist's 10 most popular, a hidden-gem badge for deep cuts, album
+  popularity and label, and whether the track is liked. peak -Watch caches these lookups.
+- feat: `today` - today's listening: time, tracks, artists, top artist, most played, plays per hour
+  (from the last 50 plays Spotify returns).
+- feat: `artist [name] [-Play n]` - artist card for the playing (or searched) artist: popularity,
+  followers, genres, top 5 tracks, latest release, album/single count; -Play plays a top track.
+
 v3.2.16
 - fix: `play` said "Started playing" while nothing played. Spotify accepts but silently ignores a
   bare single-track request (`uris`), while a request with a context (`context_uri` + `offset`)

@@ -430,38 +430,63 @@ function Get-SpotifyPeakInfo {
     .SYNOPSIS
     Get track and artist insights for the currently playing track
     .DESCRIPTION
-    Returns $null when nothing is playing. Pass -ArtistData to reuse an earlier artist lookup.
+    Returns $null when nothing is playing or the item is not a music track. Pass the same -Cache
+    hashtable between calls (as peak -Watch does) so artist data, your top lists and per-track
+    extras are only fetched once.
     #>
-    param($ArtistData)
+    param([hashtable]$Cache = @{})
 
     $playback = Invoke-SpotifyApi -Method GET -Path '/me/player' -ErrorAction SilentlyContinue
-    if (-not $playback -or -not $playback.item) { return $null }
+    if (-not $playback -or -not $playback.item -or -not $playback.item.artists) { return $null }
     $item = $playback.item
-
     $artistId = $item.artists[0].id
-    if (-not $ArtistData -or $ArtistData.id -ne $artistId) {
-        $ArtistData = $null
-        if ($artistId) {
-            try { $ArtistData = Invoke-SpotifyApi -Method GET -Path "/artists/$artistId" -ErrorAction SilentlyContinue } catch { }
+
+    function Get-Cached([string]$key, [scriptblock]$fetch) {
+        if (-not $Cache.ContainsKey($key)) {
+            $value = $null
+            try { $value = & $fetch } catch { }
+            $Cache[$key] = $value
         }
+        return $Cache[$key]
     }
 
+    $artistData = Get-Cached "artist:$artistId" { Invoke-SpotifyApi -Method GET -Path "/artists/$artistId" -ErrorAction SilentlyContinue }
+    $topTracks  = Get-Cached 'top:tracks'  { (Invoke-SpotifyApi -Method GET -Path '/me/top/tracks'  -Query @{ limit = 50; time_range = 'short_term' }).items }
+    $topArtists = Get-Cached 'top:artists' { (Invoke-SpotifyApi -Method GET -Path '/me/top/artists' -Query @{ limit = 50; time_range = 'short_term' }).items }
+    $artistTop  = Get-Cached "artisttop:$artistId" { (Invoke-SpotifyApi -Method GET -Path "/artists/$artistId/top-tracks" -Query @{ market = 'from_token' }).tracks }
+    $album      = Get-Cached "album:$($item.album.id)" { Invoke-SpotifyApi -Method GET -Path "/albums/$($item.album.id)" }
+    $liked      = Get-Cached "liked:$($item.id)" { @(Invoke-SpotifyApi -Method GET -Path '/me/tracks/contains' -Query @{ ids = $item.id })[0] }
+
+    # Rankings are 1-based; $null when not in the list
+    $rankIn = { param($list, $id) $i = 0; foreach ($x in @($list)) { $i++; if ($x.id -eq $id) { return $i } }; return $null }
+    $artistTopRank = & $rankIn $artistTop $item.id
+    $artistTopAvg = if (@($artistTop).Count) { [int](@($artistTop) | Measure-Object -Property popularity -Average).Average } else { $null }
+    $trackPop = [int]$item.popularity
+
     [PSCustomObject]@{
-        Uri         = $item.uri
-        Track       = $item.name
-        Artists     = ($item.artists | ForEach-Object { $_.name }) -join ', '
-        IsPlaying   = [bool]$playback.is_playing
-        TrackPop    = [int]$item.popularity
-        ArtistPop   = if ($ArtistData) { [int]$ArtistData.popularity } else { $null }
-        Followers   = if ($ArtistData) { [long]$ArtistData.followers.total } else { $null }
-        Genres      = if ($ArtistData) { @($ArtistData.genres) } else { @() }
-        DurationMs  = [long]$item.duration_ms
-        Album       = $item.album.name
-        ReleaseDate = $item.album.release_date
-        TrackNumber = $item.track_number
-        TotalTracks = $item.album.total_tracks
-        Explicit    = [bool]$item.explicit
-        ArtistData  = $ArtistData
+        Uri           = $item.uri
+        Track         = $item.name
+        Artists       = ($item.artists | ForEach-Object { $_.name }) -join ', '
+        ArtistName    = $item.artists[0].name
+        IsPlaying     = [bool]$playback.is_playing
+        TrackPop      = $trackPop
+        ArtistPop     = if ($artistData) { [int]$artistData.popularity } else { $null }
+        Followers     = if ($artistData) { [long]$artistData.followers.total } else { $null }
+        Genres        = if ($artistData) { @($artistData.genres) } else { @() }
+        DurationMs    = [long]$item.duration_ms
+        Album         = $item.album.name
+        ReleaseDate   = $item.album.release_date
+        TrackNumber   = $item.track_number
+        TotalTracks   = $item.album.total_tracks
+        Explicit      = [bool]$item.explicit
+        TopTrackRank  = & $rankIn $topTracks $item.id
+        TopArtistRank = & $rankIn $topArtists $artistId
+        ArtistTopRank = $artistTopRank
+        ArtistTopAvg  = $artistTopAvg
+        IsHiddenGem   = ($null -eq $artistTopRank) -and ($null -ne $artistTopAvg) -and ($trackPop -le $artistTopAvg - 25)
+        AlbumPop      = if ($album) { [int]$album.popularity } else { $null }
+        Label         = if ($album) { $album.label } else { $null }
+        Liked         = if ($null -ne $liked) { [bool]$liked } else { $null }
     }
 }
 
@@ -503,6 +528,30 @@ function Write-SpotifyPeakInfo {
     Write-PeakRow '' "Released $($Info.ReleaseDate)  |  Track $($Info.TrackNumber) of $($Info.TotalTracks)" 'DarkGray'
     Write-PeakRow 'Genres' $(if ($Info.Genres.Count) { ($Info.Genres | Select-Object -First 4) -join ', ' } else { 'n/a' }) 'Cyan'
 
+    # --- You & this track ---
+    Write-Host ''
+    $topParts = @()
+    $topParts += if ($Info.TopTrackRank) { "#$($Info.TopTrackRank) of your tracks" } else { 'not in your top 50 tracks' }
+    if ($Info.TopArtistRank) { $topParts += "$($Info.ArtistName) is your #$($Info.TopArtistRank) artist" }
+    Write-PeakRow 'Your top' (($topParts -join '  |  ') + '  (last 4 weeks)') $(if ($Info.TopTrackRank -or $Info.TopArtistRank) { 'Green' } else { 'DarkGray' })
+    if ($Info.ArtistTopRank) {
+        Write-PeakRow 'Artist rank' "#$($Info.ArtistTopRank) of $($Info.ArtistName)'s 10 most popular" 'Green'
+    } else {
+        Write-PeakRow 'Artist rank' "not in $($Info.ArtistName)'s top 10" 'DarkGray'
+    }
+    if ($Info.IsHiddenGem) {
+        Write-PeakRow 'Hidden gem' "$([char]::ConvertFromUtf32(0x1F48E)) Track pop $($Info.TrackPop) vs artist avg $($Info.ArtistTopAvg) - a deep cut" 'Magenta'
+    }
+    if ($null -ne $Info.AlbumPop) {
+        $albumText = "Popularity $($Info.AlbumPop)"
+        if ($Info.Label) { $albumText += "  |  $($Info.Label)" }
+        Write-PeakRow 'Album info' $albumText 'Gray'
+    }
+    if ($null -ne $Info.Liked) {
+        if ($Info.Liked) { Write-PeakRow 'Liked' "$([char]0x2665) in your library" 'Red' }
+        else { Write-PeakRow 'Liked' 'not saved  (save-track to like it)' 'DarkGray' }
+    }
+
     if ($History -and $History.Count) {
         $blocks = 0x2581..0x2588 | ForEach-Object { [char]$_ }
         $graph = ($History | ForEach-Object { $blocks[[Math]::Min(7, [Math]::Max(0, [int]($_ / 100 * 7.99)))] }) -join ' '
@@ -536,15 +585,14 @@ function Show-SpotifyPeak {
     }
 
     $history = [System.Collections.Generic.List[int]]::new()
-    $artistData = $null
+    $cache = @{}
     $lastUri = $null
     $info = $null
     while ($true) {
         try {
-            $fresh = Get-SpotifyPeakInfo -ArtistData $artistData
+            $fresh = Get-SpotifyPeakInfo -Cache $cache
             if ($fresh) {
                 $info = $fresh
-                $artistData = $fresh.ArtistData
                 if ($fresh.Uri -ne $lastUri) {
                     $lastUri = $fresh.Uri
                     $history.Add($fresh.TrackPop)

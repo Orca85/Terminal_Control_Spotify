@@ -23,6 +23,7 @@ $script:NestedModules = @(
     'modules\Core\PlaylistQueueCommands.psm1',
     'modules\Quiz\QuizCommands.psm1',
     'modules\UI\PeakDashboard.psm1',
+    'modules\UI\SpotifyInsights.psm1',
     'modules\Core\SetlistCommands.psm1',
     'modules\Core\AliasManagement.psm1',
     'modules\Core\InstallationCommands.psm1'
@@ -346,7 +347,7 @@ function Uninstall-SpotifyCli {
     $allAliases = @('plays-now','music','pn','sp','pl','vol','sh','rep','tr','q','pq',
                     'spotify','help','spotify-help','slw','ShowLyrics','quiz','peak',
                     'setlist','commands','ss','ShowSpotify',
-                    'spcommands','mix','swap','showpeak')
+                    'spcommands','mix','swap','showpeak','today','artist')
     $removedAliases = 0
     foreach ($alias in $allAliases) {
         if (Get-Alias -Name $alias -ErrorAction SilentlyContinue) {

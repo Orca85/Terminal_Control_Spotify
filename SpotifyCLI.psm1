@@ -2269,6 +2269,8 @@ function Get-SpotifyHelp {
             @{ Cmd = 'Start-SpotifyApp'; Show = 'Start-SpotifyApp [-Web]'; Desc = 'Launch Spotify' }
         )
         'STATS & FUN' = @(
+            @{ Cmd = 'Show-SpotifyToday';     Show = 'Show-SpotifyToday';              Desc = "Today's listening" }
+            @{ Cmd = 'Show-SpotifyArtist';    Show = 'Show-SpotifyArtist [name] [-Play n]'; Desc = 'Artist card, play a top track' }
             @{ Cmd = 'Get-SpotifyListeningStatistics'; Show = 'Get-SpotifyListeningStatistics'; Desc = 'Top tracks & artists (week/month/year)' }
             @{ Cmd = 'Start-MusicQuiz';       Show = 'Start-MusicQuiz [rounds]';       Desc = 'Music quiz' }
             @{ Cmd = 'Invoke-SetlistCommand'; Show = 'Invoke-SetlistCommand <artist>'; Desc = 'Concert setlists + playlist' }
