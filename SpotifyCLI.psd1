@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.13'
+    ModuleVersion = '3.2.14'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -168,6 +168,12 @@
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.14
+- feat: `spcommands` is now the main help, written for PowerShell: every shell command grouped by
+  category, without `/`, with its aliases (read from the live session). `spcommands <command>` shows
+  detailed help. `spotify-help` points to the same help. The interactive CLI keeps its own /help
+  and /commands lists.
+
 v3.2.13
 - fix: `spcommands` now lists every alias (built from the live session instead of a hand-written
   line that only showed three and listed `q` as quit).

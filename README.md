@@ -200,8 +200,8 @@ fav        # Mark current track as favorite
 
 | Command | Aliases | Description |
 | ------- | ------- | ----------- |
-| `Get-SpotifyHelp` | `spotify-help` | Show all commands |
-| `Show-AllSpotifyCommands` | `spcommands` | Compact command list |
+| `Get-SpotifyHelp` | `spcommands`, `spotify-help` | All PowerShell commands with aliases; `spcommands <command>` for details |
+| `Show-AllSpotifyCommands` | | Command list for the interactive CLI (`/commands`) |
 | `Start-SpotifyApp` | `spotify` | Launch Spotify desktop app |
 | `copy-track-link` | | Copy current track URL |
 | `export-now-playing` | | Export track info to file |

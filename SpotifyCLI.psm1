@@ -61,25 +61,10 @@ function Show-AllSpotifyCommands {
     Write-Host "    /commands                   This list" -ForegroundColor Gray
     Write-Host "    /quit                       Exit the CLI" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  ALIASES (PowerShell)" -ForegroundColor Yellow
-    # Built from the live session: every alias that points to a command this module exports,
-    # so the list can never drift from what is actually defined.
-    $moduleCommands = @($ExecutionContext.SessionState.Module.ExportedCommands.Keys)
-    $groups = Get-Alias -ErrorAction SilentlyContinue |
-        Where-Object { $moduleCommands -contains $_.Definition } |
-        Group-Object Definition |
-        Sort-Object Name
-    foreach ($group in $groups) {
-        $names = ($group.Group.Name | Sort-Object Length, Name) -join ', '
-        Write-Host ("    {0,-28}" -f $names) -ForegroundColor Gray -NoNewline
-        Write-Host $group.Name -ForegroundColor DarkGray
-    }
-    Write-Host ""
-    Write-Host "  INSIDE Start-SpotifyCLI" -ForegroundColor Yellow
-    Write-Host "    q, exit                     /quit" -ForegroundColor Gray
+    Write-Host "  ALIASES" -ForegroundColor Yellow
+    Write-Host "    pn, plays-now = /spotify    pq = /play-queue    q = /quit" -ForegroundColor DarkGray
     Write-Host ""
 }
-New-Alias -Name 'spcommands' -Value 'Show-AllSpotifyCommands' -Force
 
 # Live Features Integration Commands
 function Start-SpotifyLive {
@@ -2212,13 +2197,120 @@ Set-Alias -Name pl -Value playlists -Force -ErrorAction SilentlyContinue
 
 # Help aliases
 function Get-SpotifyHelp {
+    <#
+    .SYNOPSIS
+    Show all Spotify commands you can type in PowerShell (aliases: spcommands, spotify-help)
+    .PARAMETER Command
+    Show detailed help for one command or alias instead of the list
+    .EXAMPLE
+    spcommands
+    .EXAMPLE
+    spcommands seek
+    #>
     param([string]$Command)
-    Invoke-HelpCommand $Command
+
+    if ($Command) {
+        if (Get-Command $Command -ErrorAction SilentlyContinue) {
+            Get-Help $Command -Detailed
+        } else {
+            Write-Host "Unknown command '$Command'. Run spcommands to list all commands." -ForegroundColor Yellow
+        }
+        return
+    }
+
+    # Sections and descriptions are curated; aliases are read from the live session so they never drift.
+    # Cmd = command used for alias lookup and existence check; Show = what is printed.
+    $sections = [ordered]@{
+        'NOW PLAYING' = @(
+            @{ Cmd = 'Show-SpotifyTrack';        Show = 'Show-SpotifyTrack [compact]';    Desc = 'Current track' }
+            @{ Cmd = 'Show-SpotifyForm';         Show = 'Show-SpotifyForm';               Desc = 'Playback in a window' }
+            @{ Cmd = 'Show-SpotifyLyricsForm';   Show = 'Show-SpotifyLyricsForm';         Desc = 'Synced lyrics window' }
+            @{ Cmd = 'Start-SpotifyLiveDisplay'; Show = 'Start-SpotifyLiveDisplay [mode]'; Desc = 'Live display (detailed/compact/minimal)' }
+            @{ Cmd = 'Show-PeakDashboard';       Show = 'Show-PeakDashboard';             Desc = 'Track insights dashboard' }
+            @{ Cmd = 'copy-track-link';          Show = 'copy-track-link';                Desc = 'Copy track link to clipboard' }
+            @{ Cmd = 'export-now-playing';       Show = 'export-now-playing [-Watch]';    Desc = 'Export track info for OBS' }
+        )
+        'PLAYBACK' = @(
+            @{ Cmd = 'play';          Show = 'play [n|uri]';             Desc = 'Resume, or play search result #n / a URI' }
+            @{ Cmd = 'pause';         Show = 'pause';                    Desc = 'Pause' }
+            @{ Cmd = 'next';          Show = 'next';                     Desc = 'Next track' }
+            @{ Cmd = 'previous';      Show = 'previous';                 Desc = 'Previous track' }
+            @{ Cmd = 'seek';          Show = 'seek <seconds>';           Desc = 'Jump forward (negative = back)' }
+            @{ Cmd = 'skip-forward';  Show = 'skip-forward';             Desc = 'Forward 30 s' }
+            @{ Cmd = 'skip-back';     Show = 'skip-back';                Desc = 'Back 15 s' }
+            @{ Cmd = 'replay';        Show = 'replay';                   Desc = 'Back 30 s' }
+            @{ Cmd = 'volume';        Show = 'volume <0-100>';           Desc = 'Set volume' }
+            @{ Cmd = 'volume-low';    Show = 'volume-low|medium|high';   Desc = 'Volume 25 / 50 / 75 %' }
+            @{ Cmd = 'shuffle';       Show = 'shuffle [on|off]';         Desc = 'Shuffle (no argument = toggle)' }
+            @{ Cmd = 'repeat';        Show = 'repeat <track|context|off>'; Desc = 'Repeat mode' }
+        )
+        'SEARCH & LIBRARY' = @(
+            @{ Cmd = 'search';         Show = 'search <query> [-Type t]';  Desc = 'Search (track/artist/album/episode)' }
+            @{ Cmd = 'search-albums';  Show = 'search-albums <query>';     Desc = 'Search albums' }
+            @{ Cmd = 'play-album';     Show = 'play-album <n>';            Desc = 'Play album #n from search' }
+            @{ Cmd = 'queue-album';    Show = 'queue-album <n>';           Desc = 'Queue album #n from search' }
+            @{ Cmd = 'playlists';      Show = 'playlists';                 Desc = 'Your playlists' }
+            @{ Cmd = 'play-playlist';  Show = 'play-playlist <n> [track]'; Desc = 'Play playlist #n' }
+            @{ Cmd = 'queue-playlist'; Show = 'queue-playlist <n>';        Desc = 'Queue playlist #n' }
+            @{ Cmd = 'liked';          Show = 'liked';                     Desc = 'Liked songs' }
+            @{ Cmd = 'recent';         Show = 'recent [n]';                Desc = 'Recently played, or play #n' }
+            @{ Cmd = 'save-track';     Show = 'save-track';                Desc = 'Like current track' }
+            @{ Cmd = 'unsave-track';   Show = 'unsave-track';              Desc = 'Unlike current track' }
+            @{ Cmd = 'fav';            Show = 'fav [name|add|remove]';     Desc = 'Playlist shortcuts' }
+        )
+        'QUEUE' = @(
+            @{ Cmd = 'queue';      Show = 'queue [n|uri|clear|remove n]'; Desc = 'Show, add to, or edit the queue' }
+            @{ Cmd = 'play-queue'; Show = 'play-queue <n>';               Desc = 'Play track #n from the queue' }
+        )
+        'DEVICES' = @(
+            @{ Cmd = 'devices';          Show = 'devices';                 Desc = 'Spotify Connect devices' }
+            @{ Cmd = 'transfer';         Show = 'transfer <n|id>';         Desc = 'Move playback to a device' }
+            @{ Cmd = 'Start-SpotifyApp'; Show = 'Start-SpotifyApp [-Web]'; Desc = 'Launch Spotify' }
+        )
+        'STATS & FUN' = @(
+            @{ Cmd = 'Get-SpotifyListeningStatistics'; Show = 'Get-SpotifyListeningStatistics'; Desc = 'Top tracks & artists (week/month/year)' }
+            @{ Cmd = 'Start-MusicQuiz';       Show = 'Start-MusicQuiz [rounds]';       Desc = 'Music quiz' }
+            @{ Cmd = 'Invoke-SetlistCommand'; Show = 'Invoke-SetlistCommand <artist>'; Desc = 'Concert setlists + playlist' }
+        )
+        'SETTINGS' = @(
+            @{ Cmd = 'notifications';       Show = 'notifications <on|off>'; Desc = 'Track-change notifications' }
+            @{ Cmd = 'Get-SpotifyConfig';   Show = 'Get-SpotifyConfig';      Desc = 'Show settings' }
+            @{ Cmd = 'Set-SpotifyConfig';   Show = 'Set-SpotifyConfig';      Desc = 'Change settings' }
+            @{ Cmd = 'Get-SpotifyAliases';  Show = 'Get-SpotifyAliases';     Desc = 'List aliases and status' }
+            @{ Cmd = 'Test-AliasConflicts'; Show = 'Test-AliasConflicts';    Desc = 'Check alias conflicts' }
+        )
+    }
+
+    $moduleCommands = @($ExecutionContext.SessionState.Module.ExportedCommands.Keys)
+    $aliasesFor = @{}
+    Get-Alias -ErrorAction SilentlyContinue |
+        Where-Object { $moduleCommands -contains $_.Definition } |
+        ForEach-Object { $aliasesFor[$_.Definition] = @($aliasesFor[$_.Definition]) + $_.Name | Where-Object { $_ } }
+
+    Write-Host ""
+    Write-Host "  SPOTIFY COMMANDS - PowerShell" -ForegroundColor Cyan
+    Write-Host "  =============================" -ForegroundColor Cyan
+    foreach ($section in $sections.Keys) {
+        Write-Host ""
+        Write-Host "  $section" -ForegroundColor Yellow
+        foreach ($entry in $sections[$section]) {
+            if (-not (Get-Command $entry.Cmd -ErrorAction SilentlyContinue)) { continue }
+            $aliases = ($aliasesFor[$entry.Cmd] | Sort-Object Length, { $_ }) -join ', '
+            Write-Host ("    {0,-33}" -f $entry.Show) -ForegroundColor Gray -NoNewline
+            Write-Host ("{0,-42}" -f $entry.Desc) -ForegroundColor DarkGray -NoNewline
+            Write-Host $aliases -ForegroundColor Green
+        }
+    }
+    Write-Host ""
+    Write-Host "  spcommands <command>   Detailed help, e.g. spcommands seek" -ForegroundColor DarkGray
+    Write-Host "  Aliases are shown in green." -ForegroundColor DarkGray
+    Write-Host ""
 }
 
 Set-Alias -Name spotify -Value Start-SpotifyApp -Force -ErrorAction SilentlyContinue
 
 Set-Alias -Name spotify-help -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
+Set-Alias -Name spcommands -Value Get-SpotifyHelp -Force -ErrorAction SilentlyContinue
 
 # Live features aliases
 Set-Alias -Name slw -Value Show-SpotifyLyricsForm -Force -ErrorAction SilentlyContinue
