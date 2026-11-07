@@ -16,7 +16,11 @@
 .EXAMPLE
     .\Publish-SpotifyCLI.ps1 -ApiKey "your-api-key-here"
     .\Publish-SpotifyCLI.ps1 -WhatIf
+.EXAMPLE
+    .\Publish-SpotifyCLI.ps1 -Verbose
+    Shows the full Publish-Module log (useful when a publish fails).
 #>
+[CmdletBinding()]
 param(
     [string]$ApiKey,
     [switch]$WhatIf
@@ -80,7 +84,7 @@ if (-not $ApiKey) {
 # --- Publish ---
 Write-Host ""
 Write-Host "Publishing to PSGallery..." -ForegroundColor Cyan
-Publish-Module -Path $BuildDir -NuGetApiKey $ApiKey -Repository PSGallery -Verbose
+Publish-Module -Path $BuildDir -NuGetApiKey $ApiKey -Repository PSGallery
 
 Write-Host ""
 Write-Host "Done! SpotifyCLI v$version published to PSGallery." -ForegroundColor Green
