@@ -1,4 +1,4 @@
-# 🎵 SpotifyCLI v3.2.4
+# 🎵 SpotifyCLI v3.2.18
 
 A full-featured Spotify terminal client for PowerShell. Control playback, search, browse playlists, manage your queue, view synchronized lyrics, track listening statistics, play a music quiz, and look up concert setlists — all from the terminal.
 
