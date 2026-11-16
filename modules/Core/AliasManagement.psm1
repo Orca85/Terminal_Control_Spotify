@@ -31,6 +31,7 @@ $script:KnownSpotifyAliases = @{
     'stats'        = 'Get-SpotifyListeningStatistics'
     'live'         = 'Start-SpotifyLiveDisplay'
     'live-music'   = 'Start-SpotifyLiveDisplay'
+    'live-wez'     = 'Start-SpotifyWezTerm'
 }
 
 function Get-SpotifyAliases {

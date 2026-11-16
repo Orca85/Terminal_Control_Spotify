@@ -2226,6 +2226,8 @@ function Get-SpotifyHelp {
             @{ Cmd = 'Show-SpotifyForm';         Show = 'Show-SpotifyForm';               Desc = 'Playback in a window' }
             @{ Cmd = 'Show-SpotifyLyricsForm';   Show = 'Show-SpotifyLyricsForm';         Desc = 'Synced lyrics window' }
             @{ Cmd = 'Start-SpotifyLiveDisplay'; Show = 'Start-SpotifyLiveDisplay [mode]'; Desc = 'Live display (detailed/compact/minimal)' }
+            @{ Cmd = 'Start-SpotifyWezTerm';     Show = 'Start-SpotifyWezTerm';           Desc = 'WezTerm pane with album cover' }
+            @{ Cmd = 'Stop-SpotifyWezTerm';      Show = 'Stop-SpotifyWezTerm';            Desc = 'Close the WezTerm pane' }
             @{ Cmd = 'Show-SpotifyPeak';         Show = 'Show-SpotifyPeak [-Watch]';      Desc = 'Track insights in the terminal' }
             @{ Cmd = 'Show-PeakDashboard';       Show = 'Show-PeakDashboard';             Desc = 'Track insights in a window' }
             @{ Cmd = 'copy-track-link';          Show = 'copy-track-link';                Desc = 'Copy track link to clipboard' }

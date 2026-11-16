@@ -1,6 +1,6 @@
 @{
     RootModule = 'SpotifyCLI.psm1'
-    ModuleVersion = '3.2.17'
+    ModuleVersion = '3.2.18'
     GUID = 'c7f3a1b2-d4e5-4f60-9abc-12de34567890'
     Author = 'Orca85'
     CompanyName = 'Orca'
@@ -25,6 +25,7 @@
         'modules\Quiz\QuizCommands.psm1',
         'modules\UI\PeakDashboard.psm1',
         'modules\UI\SpotifyInsights.psm1',
+        'modules\UI\WezTermDisplay.psm1',
         'modules\Core\SetlistCommands.psm1',
         'modules\Core\AliasManagement.psm1',
         'modules\Core\InstallationCommands.psm1',
@@ -132,6 +133,8 @@
         'Set-SpotifyLiveFeaturesConfiguration',
         'Reset-SpotifyLiveFeaturesConfiguration',
         'Start-SpotifySidecar',
+        'Start-SpotifyWezTerm',
+        'Stop-SpotifyWezTerm',
 
         'Show-SpotifyForm',
         'Show-LyricsForm',
@@ -166,13 +169,24 @@
         'Set-StoredTokens',
         'Initialize-TokenStore'
     )
-    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'mix', 'rep', 'swap', 'q', 'pq', 'spotify', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'showpeak', 'today', 'artist', 'setlist', 'spcommands', 'stats', 'live', 'live-music', 'ss', 'ShowSpotify')
+    AliasesToExport = @('plays-now', 'music', 'pn', 'sp', 'pl', 'vol', 'mix', 'rep', 'swap', 'q', 'pq', 'spotify', 'spotify-help', 'slw', 'ShowLyrics', 'quiz', 'peak', 'showpeak', 'today', 'artist', 'setlist', 'spcommands', 'stats', 'live', 'live-music', 'live-wez', 'ss', 'ShowSpotify')
     PrivateData = @{
         PSData = @{
             Tags = @('Spotify', 'Music', 'CLI', 'Audio', 'Player', 'Terminal', 'PowerShell', 'NowPlaying', 'Playback', 'Lyrics', 'LiveDisplay', 'Statistics', 'Quiz', 'Setlist', 'PSModule')
             ProjectUri = 'https://github.com/Orca85/terminal_control_spotify'
             LicenseUri = 'https://github.com/Orca85/terminal_control_spotify/blob/main/LICENSE'
             ReleaseNotes = @'
+v3.2.18
+- feat: optional WezTerm live view. `Start-SpotifyWezTerm` (alias `live-wez`) opens a separate
+  WezTerm pane with album cover, title, artist, album, play/pause state and a progress bar in a
+  dark theme with gold details. `Stop-SpotifyWezTerm` closes only that pane; your shell and the
+  music are left alone (q / Esc / Ctrl+C in the pane also stop it).
+- Covers are cached in %LOCALAPPDATA%\SpotifyCLI\covers (newest 200 kept) and downloaded once.
+  One Spotify request every 3 seconds (-PollSeconds), every 10 seconds when nothing is active.
+- Outside WezTerm (Windows Terminal, plain PowerShell), with -NoImage, or when a cover cannot be
+  downloaded, the same view runs as text. Existing commands, `live`, `live-music` and
+  Start-SpotifySidecar (Windows Terminal) are unchanged. Requires WezTerm 20230326 or later.
+
 v3.2.17
 - feat: `peak` shows where the track and artist rank in your top lists (last 4 weeks), the
   track's rank among the artist's 10 most popular, a hidden-gem badge for deep cuts, album

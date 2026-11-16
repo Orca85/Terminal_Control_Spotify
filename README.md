@@ -137,6 +137,29 @@ Modes: `detailed`, `compact`, `minimal`
 Start-SpotifyLiveDisplay -Mode compact
 ```
 
+### 🐋 WezTerm Live View (optional)
+
+| Command | Aliases | Description |
+| ------- | ------- | ----------- |
+| `Start-SpotifyWezTerm` | `live-wez` | Now-playing pane with album cover in WezTerm |
+| `Stop-SpotifyWezTerm` | | Close that pane |
+
+An opt-in add-on for [WezTerm](https://wezterm.org). It splits the current pane and shows the album cover, title, artist, album, playback state and a progress bar in a dark theme with gold details. Nothing changes unless you run it; `live`, `live-music` and `Start-SpotifySidecar` work as before.
+
+```powershell
+Start-SpotifyWezTerm                        # pane on the right, 35 %
+Start-SpotifyWezTerm -Position down -Size 30
+Start-SpotifyWezTerm -InPlace               # in the current pane instead of a new one
+Start-SpotifyWezTerm -NoImage               # text only
+Stop-SpotifyWezTerm                         # close the pane (or press q / Esc / Ctrl+C in it)
+```
+
+- The view only reads from Spotify. Stopping it never stops the music or closes your shell.
+- Covers are cached in `%LOCALAPPDATA%\SpotifyCLI\covers` (newest 200 kept) and downloaded once per album.
+- One Spotify request every 3 seconds (`-PollSeconds`), every 10 seconds when nothing is active; the progress bar is interpolated in between.
+- Outside WezTerm, or when a cover cannot be downloaded, the same view runs as text (a placeholder replaces the cover).
+- Requires WezTerm 20230326 or later. Images use the iTerm2 inline image protocol and are not reliable through tmux, ssh or WezTerm multiplexer domains.
+
 ### 🎤 Lyrics
 
 | Command | Aliases | Description |
